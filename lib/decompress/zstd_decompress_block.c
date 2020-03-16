@@ -455,7 +455,7 @@ static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymb
     case set_repeat:
         RETURN_ERROR_IF(!flagRepeatTable, corruption_detected);
         /* prefetch FSE table if used */
-        if (ddictIsCold && (nbSeq > 24 /* heuristic */)) {
+        if (ddictIsCold & (nbSeq > 24 /* heuristic */)) {
             const void* const pStart = *DTablePtr;
             size_t const pSize = sizeof(ZSTD_seqSymbol) * (SEQSYMBOL_TABLE_SIZE(maxLog));
             PREFETCH_AREA(pStart, pSize);
@@ -491,13 +491,13 @@ size_t ZSTD_decodeSeqHeaders(ZSTD_DCtx* dctx, int* nbSeqPtr,
 
     /* SeqHead */
     nbSeq = *ip++;
-    if (!nbSeq) {
+    if (UNLIKELY(!nbSeq)) {
         *nbSeqPtr=0;
         RETURN_ERROR_IF(srcSize != 1, srcSize_wrong);
         return 1;
     }
-    if (nbSeq > 0x7F) {
-        if (nbSeq == 0xFF) {
+    if (LIKELY(nbSeq > 0x7F)) {
+        if (UNLIKELY(nbSeq == 0xFF)) {
             RETURN_ERROR_IF(ip+2 > iend, srcSize_wrong);
             nbSeq = MEM_readLE16(ip) + LONGNBSEQ, ip+=2;
         } else {
@@ -731,7 +731,10 @@ size_t ZSTD_execSequence(BYTE* op,
     assert(WILDCOPY_OVERLENGTH >= 16);
     ZSTD_copy16(op, (*litPtr));
     if (sequence.litLength > 16) {
-        ZSTD_wildcopy(op+16, (*litPtr)+16, sequence.litLength-16, ZSTD_no_overlap);
+        ZSTD_copy16(op+16, (*litPtr)+16);
+        if (sequence.litLength > 32) {
+            ZSTD_wildcopy(op+32, (*litPtr)+32, sequence.litLength - 32, ZSTD_no_overlap);
+        }
     }
     op = oLitEnd;
     *litPtr = iLitEnd;   /* update for next sequence */
@@ -766,7 +769,10 @@ size_t ZSTD_execSequence(BYTE* op,
          * longer than literals (in general). In silesia, ~10% of matches are longer
          * than 16 bytes.
          */
-        ZSTD_wildcopy(op, match, (ptrdiff_t)sequence.matchLength, ZSTD_no_overlap);
+        ZSTD_copy16(op, match);
+        if(sequence.matchLength > 16) {
+            ZSTD_wildcopy(op + 16, match + 16, (ptrdiff_t)sequence.matchLength - 16, ZSTD_no_overlap);
+        }
         return sequenceLength;
     }
     assert(sequence.offset < WILDCOPY_VECLEN);
@@ -917,7 +923,7 @@ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, c
      */
     {
 
-#if defined(__GNUC__) && !defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__) && !defined(__aarch64__)
         const int kUseUpdateFseState = 1;
 #else
         const int kUseUpdateFseState = 0;
