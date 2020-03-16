@@ -717,6 +717,9 @@ ZSTD_compressBlock_lazy_generic(
         /* let's try to find a better solution */
         if (depth>=1)
         while (ip<ilimit) {
+#ifdef __aarch64__
+            __asm__ __volatile__("prfm pldl2keep,%0" ::"Q"(*(ip+64)));
+#endif
             ip ++;
             if ( (dictMode == ZSTD_noDict)
               && (offset) && ((offset_1>0) & (MEM_read32(ip) == MEM_read32(ip - offset_1)))) {
