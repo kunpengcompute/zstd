@@ -253,7 +253,6 @@ void ZSTD_wildcopy(void* dst, const void* src, ptrdiff_t length, ZSTD_overlap_e 
          */
 #ifndef __aarch64__
         COPY16(op, ip);
-        COPY16(op, ip);
         if (op >= oend) return;
 #endif
         do {
