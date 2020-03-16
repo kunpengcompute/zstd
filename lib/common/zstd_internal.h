@@ -274,10 +274,10 @@ typedef struct seqDef_s {
 } seqDef;
 
 typedef struct {
+    BYTE* lit;
     seqDef* sequencesStart;
     seqDef* sequences;
     BYTE* litStart;
-    BYTE* lit;
     BYTE* llCode;
     BYTE* mlCode;
     BYTE* ofCode;

@@ -159,6 +159,8 @@ ZSTD_DUBT_findBetterDictMatch (
         U32 const mls,
         const ZSTD_dictMode_e dictMode)
 {
+    const BYTE* const base = ms->window.base;
+    const BYTE* const prefixStart = base + ms->window.dictLimit;
     const ZSTD_matchState_t * const dms = ms->dictMatchState;
     const ZSTD_compressionParameters* const dmsCParams = &dms->cParams;
     const U32 * const dictHashTable = dms->hashTable;
@@ -166,8 +168,6 @@ ZSTD_DUBT_findBetterDictMatch (
     size_t      const h  = ZSTD_hashPtr(ip, hashLog, mls);
     U32               dictMatchIndex = dictHashTable[h];
 
-    const BYTE* const base = ms->window.base;
-    const BYTE* const prefixStart = base + ms->window.dictLimit;
     U32         const current = (U32)(ip-base);
     const BYTE* const dictBase = dms->window.base;
     const BYTE* const dictEnd = dms->window.nextSrc;

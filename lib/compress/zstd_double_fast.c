@@ -62,14 +62,14 @@ size_t ZSTD_compressBlock_doubleFast_generic(
     const BYTE* const istart = (const BYTE*)src;
     const BYTE* ip = istart;
     const BYTE* anchor = istart;
-    const U32 endIndex = (U32)((size_t)(istart - base) + srcSize);
+    const BYTE* const iend = istart + srcSize;
+    const U32   endIndex = (U32)(iend - base);
+    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     const U32 lowestValid = ms->window.dictLimit;
     const U32 maxDistance = 1U << cParams->windowLog;
     /* presumes that, if there is a dictionary, it must be using Attach mode */
     const U32 prefixLowestIndex = (endIndex - lowestValid > maxDistance) ? endIndex - maxDistance : lowestValid;
     const BYTE* const prefixLowest = base + prefixLowestIndex;
-    const BYTE* const iend = istart + srcSize;
-    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     U32 offset_1=rep[0], offset_2=rep[1];
     U32 offsetSaved = 0;
 
@@ -363,13 +363,13 @@ static size_t ZSTD_compressBlock_doubleFast_extDict_generic(
     U32  const hBitsL = cParams->hashLog;
     U32* const hashSmall = ms->chainTable;
     U32  const hBitsS = cParams->chainLog;
+    const BYTE* const base = ms->window.base;
     const BYTE* const istart = (const BYTE*)src;
     const BYTE* ip = istart;
     const BYTE* anchor = istart;
     const BYTE* const iend = istart + srcSize;
+    const U32   endIndex = (U32)(iend - base);
     const BYTE* const ilimit = iend - 8;
-    const BYTE* const base = ms->window.base;
-    const U32   endIndex = (U32)((size_t)(istart - base) + srcSize);
     const U32   lowLimit = ZSTD_getLowestMatchIndex(ms, endIndex, cParams->windowLog);
     const U32   dictStartIndex = lowLimit;
     const U32   dictLimit = ms->window.dictLimit;
