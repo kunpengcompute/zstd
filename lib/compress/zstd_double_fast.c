@@ -271,7 +271,7 @@ _match_stored:
                     U32 const repIndex2 = current2 - offset_2;
                     const BYTE* repMatch2 = dictMode == ZSTD_dictMatchState
                         && repIndex2 < prefixLowestIndex ?
-                            dictBase - dictIndexDelta + repIndex2 :
+                            dictBase + repIndex2 - dictIndexDelta :
                             base + repIndex2;
                     if ( ((U32)((prefixLowestIndex-1) - (U32)repIndex2) >= 3 /* intentional overflow */)
                        && (MEM_read32(repMatch2) == MEM_read32(ip)) ) {
