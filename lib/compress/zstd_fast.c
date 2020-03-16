@@ -100,7 +100,7 @@ ZSTD_compressBlock_fast_generic(
 
         assert(ip0 + 1 == ip1);
 
-        if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip2))) {
+        if ((offset_1 > 0) && (MEM_read32(repMatch) == MEM_read32(ip2))) {
             mLength = ip2[-1] == repMatch[-1] ? 1 : 0;
             ip0 = ip2 - mLength;
             match0 = repMatch - mLength;

@@ -706,16 +706,15 @@ U32 ZSTD_insertBtAndGetAllMatches (
             }
         }
 
+        commonLengthSmaller = matchLength;    /* all smaller will now have at least this guaranteed common length */
         if (match[matchLength] < ip[matchLength]) {
             /* match smaller than current */
             *smallerPtr = matchIndex;             /* update smaller idx */
-            commonLengthSmaller = matchLength;    /* all smaller will now have at least this guaranteed common length */
             if (matchIndex <= btLow) { smallerPtr=&dummy32; break; }   /* beyond tree size, stop the search */
             smallerPtr = nextPtr+1;               /* new candidate => larger than match, which was smaller than current */
             matchIndex = nextPtr[1];              /* new matchIndex, larger than previous, closer to current */
         } else {
             *largerPtr = matchIndex;
-            commonLengthLarger = matchLength;
             if (matchIndex <= btLow) { largerPtr=&dummy32; break; }   /* beyond tree size, stop the search */
             largerPtr = nextPtr;
             matchIndex = nextPtr[0];
