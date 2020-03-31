@@ -60,13 +60,13 @@ ZSTD_compressBlock_fast_generic(
     const BYTE* ip0 = istart;
     const BYTE* ip1;
     const BYTE* anchor = istart;
-    const U32   endIndex = (U32)((size_t)(istart - base) + srcSize);
+    const BYTE* const iend = istart + srcSize;
+    const U32   endIndex = (U32)(iend - base);
+    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     const U32   maxDistance = 1U << cParams->windowLog;
     const U32   validStartIndex = ms->window.dictLimit;
     const U32   prefixStartIndex = (endIndex - validStartIndex > maxDistance) ? endIndex - maxDistance : validStartIndex;
     const BYTE* const prefixStart = base + prefixStartIndex;
-    const BYTE* const iend = istart + srcSize;
-    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     U32 offset_1=rep[0], offset_2=rep[1];
     U32 offsetSaved = 0;
 
@@ -100,7 +100,7 @@ ZSTD_compressBlock_fast_generic(
 
         assert(ip0 + 1 == ip1);
 
-        if ((offset_1 > 0) & (MEM_read32(repMatch) == MEM_read32(ip2))) {
+        if ((offset_1 > 0) && (MEM_read32(repMatch) == MEM_read32(ip2))) {
             mLength = ip2[-1] == repMatch[-1] ? 1 : 0;
             ip0 = ip2 - mLength;
             match0 = repMatch - mLength;
@@ -209,7 +209,6 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
     const U32   prefixStartIndex = ms->window.dictLimit;
     const BYTE* const prefixStart = base + prefixStartIndex;
     const BYTE* const iend = istart + srcSize;
-    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     U32 offset_1=rep[0], offset_2=rep[1];
     U32 offsetSaved = 0;
 
@@ -227,7 +226,8 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
     /* if a dictionary is still attached, it necessarily means that
      * it is within window size. So we just check it. */
     const U32 maxDistance = 1U << cParams->windowLog;
-    const U32 endIndex = (U32)((size_t)(ip - base) + srcSize);
+    const U32   endIndex = (U32)(iend - base);
+    const BYTE* const ilimit = iend - HASH_READ_SIZE;
     assert(endIndex - prefixStartIndex <= maxDistance);
     (void)maxDistance; (void)endIndex;   /* these variables are not used when assert() is disabled */
 
@@ -375,7 +375,9 @@ static size_t ZSTD_compressBlock_fast_extDict_generic(
     const BYTE* const istart = (const BYTE*)src;
     const BYTE* ip = istart;
     const BYTE* anchor = istart;
-    const U32   endIndex = (U32)((size_t)(istart - base) + srcSize);
+    const BYTE* const iend = istart + srcSize;
+    const U32   endIndex = (U32)(iend - base);
+    const BYTE* const ilimit = iend - 8;
     const U32   lowLimit = ZSTD_getLowestMatchIndex(ms, endIndex, cParams->windowLog);
     const U32   dictStartIndex = lowLimit;
     const BYTE* const dictStart = dictBase + dictStartIndex;
@@ -383,8 +385,6 @@ static size_t ZSTD_compressBlock_fast_extDict_generic(
     const U32   prefixStartIndex = dictLimit < lowLimit ? lowLimit : dictLimit;
     const BYTE* const prefixStart = base + prefixStartIndex;
     const BYTE* const dictEnd = dictBase + prefixStartIndex;
-    const BYTE* const iend = istart + srcSize;
-    const BYTE* const ilimit = iend - 8;
     U32 offset_1=rep[0], offset_2=rep[1];
 
     DEBUGLOG(5, "ZSTD_compressBlock_fast_extDict_generic");

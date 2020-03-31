@@ -21,6 +21,9 @@
 ***************************************/
 #include "compiler.h"
 #include "mem.h"
+#ifdef __aarch64__
+#include "arm_neon.h"
+#endif
 #include "debug.h"                 /* assert, DEBUGLOG, RAWLOG, g_debuglevel */
 #include "error_private.h"
 #define ZSTD_STATIC_LINKING_ONLY
@@ -191,10 +194,22 @@ static const U32 OF_defaultNormLog = OF_DEFAULTNORMLOG;
 /*-*******************************************
 *  Shared functions to include for inlining
 *********************************************/
-static void ZSTD_copy8(void* dst, const void* src) { memcpy(dst, src, 8); }
+static void ZSTD_copy8(void* dst, const void* src) {
+#ifdef __aarch64__
+    vst1_u8((uint8_t*)dst, vld1_u8((const uint8_t*)src));
+#else
+    memcpy(dst, src, 8);
+#endif
+}
 
 #define COPY8(d,s) { ZSTD_copy8(d,s); d+=8; s+=8; }
-static void ZSTD_copy16(void* dst, const void* src) { memcpy(dst, src, 16); }
+static void ZSTD_copy16(void* dst, const void* src) {
+#ifdef __aarch64__
+    vst1q_u8((uint8_t*)dst, vld1q_u8((const uint8_t*)src));
+#else
+    memcpy(dst, src, 16);
+#endif
+}
 #define COPY16(d,s) { ZSTD_copy16(d,s); d+=16; s+=16; }
 
 #define WILDCOPY_OVERLENGTH 32
@@ -213,7 +228,7 @@ typedef enum {
  *         - ZSTD_overlap_src_before_dst: The src and dst may overlap, but they MUST be at least 8 bytes apart.
  *           The src buffer must be before the dst buffer.
  */
-MEM_STATIC FORCE_INLINE_ATTR DONT_VECTORIZE
+MEM_STATIC FORCE_INLINE_ATTR 
 void ZSTD_wildcopy(void* dst, const void* src, ptrdiff_t length, ZSTD_overlap_e const ovtype)
 {
     ptrdiff_t diff = (BYTE*)dst - (const BYTE*)src;
@@ -230,15 +245,16 @@ void ZSTD_wildcopy(void* dst, const void* src, ptrdiff_t length, ZSTD_overlap_e 
         } while (op < oend);
     } else {
         assert(diff >= WILDCOPY_VECLEN || diff <= -WILDCOPY_VECLEN);
-        /* Separate out the first two COPY16() calls because the copy length is
+        /* Separate out the first COPY16() call because the copy length is
          * almost certain to be short, so the branches have different
-         * probabilities.
-         * On gcc-9 unrolling once is +1.6%, twice is +2%, thrice is +1.8%.
-         * On clang-8 unrolling once is +1.4%, twice is +3.3%, thrice is +3%.
+         * probabilities. Since it is almost certain to be short, only do
+         * one COPY16() in the first call. Then, do two calls per loop since
+         * at that point it is more likely to have a high trip count.
          */
-        COPY16(op, ip);
+#ifndef __aarch64__
         COPY16(op, ip);
         if (op >= oend) return;
+#endif
         do {
             COPY16(op, ip);
             COPY16(op, ip);
@@ -258,10 +274,10 @@ typedef struct seqDef_s {
 } seqDef;
 
 typedef struct {
+    BYTE* lit;
     seqDef* sequencesStart;
     seqDef* sequences;
     BYTE* litStart;
-    BYTE* lit;
     BYTE* llCode;
     BYTE* mlCode;
     BYTE* ofCode;
