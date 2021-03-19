@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/facebook/zstd/dev/doc/images/zstd_logo86.png" alt="Zstandard"></p>
 
-__Zstandard__, or `zstd` as short version, is a fast lossless compression algorithm,
-targeting real-time compression scenarios at zlib-level and better compression ratios.
+__Zstandard__, or `zstd`, is a fast lossless compression algorithm,
+targeting real-time compression scenarios at zlib-level and providing better compression ratios.
 It's backed by a very fast entropy stage, provided by [Huff0 and FSE library](https://github.com/Cyan4973/FiniteStateEntropy).
 
 The project is provided as an open-source dual [BSD](LICENSE) and [GPLv2](COPYING) licensed **C** library,
@@ -75,18 +75,18 @@ A few other algorithms can produce higher compression ratios at slower speeds, f
 For a larger picture including slow modes, [click on this link](doc/images/DCspeed5.png).
 
 
-## The case for Small Data compression
+## Small Data Compression
 
 Previous charts provide results applicable to typical file and stream scenarios (several MB). Small data comes with different perspectives.
 
-The smaller the amount of data to compress, the more difficult it is to compress. This problem is common to all compression algorithms, and reason is, compression algorithms learn from past data how to compress future data. But at the beginning of a new data set, there is no "past" to build upon.
+The smaller the amount of data to compress, the more difficult it is to compress. This problem is a common issue for all compression algorithms. The reason is that compression algorithms learn from past data how to compress future data. But at the beginning of a new data set, there is no "past" to build upon.
 
-To solve this situation, Zstd offers a __training mode__, which can be used to tune the algorithm for a selected type of data.
+To solve this problem, Zstd offers a __training mode__, which can be used to tune the algorithm for a selected type of data.
 Training Zstandard is achieved by providing it with a few samples (one file per sample). The result of this training is stored in a file called "dictionary", which must be loaded before compression and decompression.
 Using this dictionary, the compression ratio achievable on small data improves dramatically.
 
 The following example uses the `github-users` [sample set](https://github.com/facebook/zstd/releases/tag/v1.1.3), created from [github public API](https://developer.github.com/v3/users/#get-all-users).
-It consists of roughly 10K records weighing about 1KB each.
+It consists of roughly 10,000 records weighing about 1KB each.
 
 Compression Ratio | Compression Speed | Decompression Speed
 ------------------|-------------------|--------------------
@@ -99,22 +99,22 @@ Training works if there is some correlation in a family of small data samples. T
 Hence, deploying one dictionary per type of data will provide the greatest benefits.
 Dictionary gains are mostly effective in the first few KB. Then, the compression algorithm will gradually use previously decoded content to better compress the rest of the file.
 
-### Dictionary compression How To:
+### Operations
 
-1. Create the dictionary
+1. Create the dictionary:
 
    `zstd --train FullPathToTrainingSet/* -o dictionaryName`
 
-2. Compress with dictionary
+2. Compress with dictionary:
 
    `zstd -D dictionaryName FILE`
 
-3. Decompress with dictionary
+3. Decompress with dictionary:
 
    `zstd -D dictionaryName --decompress FILE.zst`
 
 
-## Build instructions
+## Build Instructions
 
 ### Makefile
 
@@ -125,7 +125,7 @@ Other available options include:
 - `make install` : create and install zstd cli, library and man pages
 - `make check` : create and run `zstd`, tests its behavior on local platform
 
-### cmake
+### Cmake
 
 A `cmake` project generator is provided within `build/cmake`.
 It can generate Makefiles or other build scripts
