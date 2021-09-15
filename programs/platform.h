@@ -23,7 +23,6 @@ extern "C" {
 #if defined(_MSC_VER)
 #  define _CRT_SECURE_NO_WARNINGS    /* Disable Visual Studio warning messages for fopen, strncpy, strerror */
 #  define _CRT_NONSTDC_NO_WARNINGS   /* Disable C4996 complaining about posix function names */
-#  define _CRT_NONSTDC_NO_WARNINGS
 #  if (_MSC_VER <= 1800)             /* 1800 == Visual Studio 2013 */
 #    define _CRT_SECURE_NO_DEPRECATE /* VS2005 - must be declared before <io.h> and <windows.h> */
 #    define snprintf sprintf_s       /* snprintf unsupported by Visual <= 2013 */
