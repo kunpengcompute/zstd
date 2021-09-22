@@ -25,9 +25,10 @@
 ***************************************/
 #include "platform.h"   /* Large Files support, SET_BINARY_MODE */
 #include "util.h"       /* UTIL_getFileSize, UTIL_isRegularFile, UTIL_isSameFile */
-#include <stdio.h>      /* fprintf, fopen, fread, _fileno, stdin, stdout */
+#include <stdio.h>      /* fprintf, open, fdopen, fread, _fileno, stdin, stdout */
 #include <stdlib.h>     /* malloc, free */
 #include <string.h>     /* strcmp, strlen */
+#include <fcntl.h>      /* O_WRONLY */
 #include <assert.h>
 #include <errno.h>      /* errno */
 #include <limits.h>     /* INT_MAX */
@@ -77,6 +78,13 @@
 
 #define FNSPACE 30
 
+/* Default file permissions 0666 (modulated by umask) */
+#if !defined(_WIN32)
+/* These macros aren't defined on windows. */
+#define DEFAULT_FILE_PERMISSIONS (S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH)
+#else
+#define DEFAULT_FILE_PERMISSIONS (0666)
+#endif
 
 /*-*************************************
 *  Macros
@@ -547,7 +555,8 @@ static FILE* FIO_openSrcFile(const char* srcFileName)
  * @result : FILE* to `dstFileName`, or NULL if it fails */
 static FILE*
 FIO_openDstFile(FIO_prefs_t* const prefs,
-          const char* srcFileName, const char* dstFileName)
+          const char* srcFileName, const char* dstFileName,
+          const int mode)
 {
     if (prefs->testMode) return NULL;  /* do not open file in test mode */
 
@@ -574,7 +583,6 @@ FIO_openDstFile(FIO_prefs_t* const prefs,
 
     if (UTIL_isRegularFile(dstFileName)) {
         /* Check if destination file already exists */
-        FILE* const fCheck = fopen( dstFileName, "rb" );
 #if !defined(_WIN32)
         /* this test does not work on Windows :
          * `NUL` and `nul` are detected as regular files */
@@ -583,34 +591,47 @@ FIO_openDstFile(FIO_prefs_t* const prefs,
                         dstFileName);
         }
 #endif
-        if (fCheck != NULL) {  /* dst file exists, authorization prompt */
-            fclose(fCheck);
-            if (!prefs->overwrite) {
-                if (g_display_prefs.displayLevel <= 1) {
-                    /* No interaction possible */
-                    DISPLAY("zstd: %s already exists; not overwritten  \n",
-                            dstFileName);
+        if (!prefs->overwrite) {
+            if (g_display_prefs.displayLevel <= 1) {
+                /* No interaction possible */
+                DISPLAY("zstd: %s already exists; not overwritten  \n",
+                        dstFileName);
+                return NULL;
+            }
+            DISPLAY("zstd: %s already exists; overwrite (y/N) ? ",
+                    dstFileName);
+            {   int ch = getchar();
+                if ((ch!='Y') && (ch!='y')) {
+                    DISPLAY("    not overwritten  \n");
                     return NULL;
                 }
-                DISPLAY("zstd: %s already exists; overwrite (y/N) ? ",
-                        dstFileName);
-                {   int ch = getchar();
-                    if ((ch!='Y') && (ch!='y')) {
-                        DISPLAY("    not overwritten  \n");
-                        return NULL;
-                    }
-                    /* flush rest of input line */
-                    while ((ch!=EOF) && (ch!='\n')) ch = getchar();
+                /* flush rest of input line */
+                while ((ch!=EOF) && (ch!='\n')) ch = getchar();
             }   }
-            /* need to unlink */
-            FIO_remove(dstFileName);
-    }   }
+        /* need to unlink */
+        FIO_remove(dstFileName);
+    }
 
-    {   FILE* const f = fopen( dstFileName, "wb" );
+    {
+#if defined(_WIN32)
+        /* Windows requires opening the file as a "binary" file to avoid
+         * mangling. This macro doesn't exist on unix. */
+        const int openflags = O_WRONLY|O_CREAT|O_TRUNC|O_BINARY;
+        const int fd = _open(dstFileName, openflags, mode);
+        FILE* f = NULL;
+        if (fd != -1) {
+            f = _fdopen(fd, "wb");
+        }
+#else
+        const int openflags = O_WRONLY|O_CREAT|O_TRUNC;
+        const int fd = open(dstFileName, openflags, mode);
+        FILE* f = NULL;
+        if (fd != -1) {
+            f = fdopen(fd, "wb");
+        }
+#endif
         if (f == NULL) {
             DISPLAYLEVEL(1, "zstd: %s: %s\n", dstFileName, strerror(errno));
-        } else if(srcFileName != NULL && strcmp (srcFileName, stdinmark)) {
-            chmod(dstFileName, 00600);
         }
         return f;
     }
@@ -1389,22 +1410,22 @@ static int FIO_compressFilename_dstFile(FIO_prefs_t* const prefs,
     int closeDstFile = 0;
     int result;
     stat_t statbuf;
-    int transfer_permissions = 0;
     assert(ress.srcFile != NULL);
     if (ress.dstFile == NULL) {
+        int dstFilePermissions = DEFAULT_FILE_PERMISSIONS;
+        if ( strcmp (srcFileName, stdinmark)
+          && UTIL_getFileStat(srcFileName, &statbuf)) {
+            dstFilePermissions = statbuf.st_mode;
+        }
         closeDstFile = 1;
         DISPLAYLEVEL(6, "FIO_compressFilename_dstFile: opening dst: %s", dstFileName);
-        ress.dstFile = FIO_openDstFile(prefs, srcFileName, dstFileName);
+        ress.dstFile = FIO_openDstFile(prefs, srcFileName, dstFileName, dstFilePermissions);
         if (ress.dstFile==NULL) return 1;  /* could not open dstFileName */
         /* Must only be added after FIO_openDstFile() succeeds.
          * Otherwise we may delete the destination file if it already exists,
          * and the user presses Ctrl-C when asked if they wish to overwrite.
          */
         addHandler(dstFileName);
-
-        if ( strcmp (srcFileName, stdinmark)
-          && UTIL_getFileStat(srcFileName, &statbuf))
-            transfer_permissions = 1;
     }
 
     result = FIO_compressFilename_internal(prefs, ress, dstFileName, srcFileName, compressionLevel);
@@ -1424,10 +1445,6 @@ static int FIO_compressFilename_dstFile(FIO_prefs_t* const prefs,
           && strcmp(dstFileName, stdoutmark)  /* special case : don't remove() stdout */
           ) {
             FIO_remove(dstFileName); /* remove compression artefact; note don't do anything special if remove() fails */
-        } else if ( strcmp(dstFileName, stdoutmark)
-                 && strcmp(dstFileName, nulmark)
-                 && transfer_permissions) {
-            UTIL_setFileStat(dstFileName, &statbuf);
         }
     }
 
@@ -1577,7 +1594,7 @@ int FIO_compressMultipleFilenames(FIO_prefs_t* const prefs,
     /* init */
     assert(outFileName != NULL || suffix != NULL);
     if (outFileName != NULL) {   /* output into a single destination (stdout typically) */
-        ress.dstFile = FIO_openDstFile(prefs, NULL, outFileName);
+        ress.dstFile = FIO_openDstFile(prefs, NULL, outFileName, DEFAULT_FILE_PERMISSIONS);
         if (ress.dstFile == NULL) {  /* could not open outFileName */
             error = 1;
         } else {
@@ -2217,13 +2234,17 @@ static int FIO_decompressDstFile(FIO_prefs_t* const prefs,
 {
     int result;
     stat_t statbuf;
-    int transfer_permissions = 0;
     int releaseDstFile = 0;
 
     if ((ress.dstFile == NULL) && (prefs->testMode==0)) {
+        int dstFilePermissions = DEFAULT_FILE_PERMISSIONS;
+        if ( strcmp(srcFileName, stdinmark)   /* special case : don't transfer permissions from stdin */
+          && UTIL_getFileStat(srcFileName, &statbuf) ) {
+            dstFilePermissions = statbuf.st_mode;
+        }
         releaseDstFile = 1;
 
-        ress.dstFile = FIO_openDstFile(prefs, srcFileName, dstFileName);
+        ress.dstFile = FIO_openDstFile(prefs, srcFileName, dstFileName, dstFilePermissions);
         if (ress.dstFile==NULL) return 1;
 
         /* Must only be added after FIO_openDstFile() succeeds.
@@ -2231,10 +2252,6 @@ static int FIO_decompressDstFile(FIO_prefs_t* const prefs,
          * and the user presses Ctrl-C when asked if they wish to overwrite.
          */
         addHandler(dstFileName);
-
-        if ( strcmp(srcFileName, stdinmark)   /* special case : don't transfer permissions from stdin */
-          && UTIL_getFileStat(srcFileName, &statbuf) )
-            transfer_permissions = 1;
     }
 
     result = FIO_decompressFrames(prefs, ress, srcFile, dstFileName, srcFileName);
@@ -2253,11 +2270,6 @@ static int FIO_decompressDstFile(FIO_prefs_t* const prefs,
           && strcmp(dstFileName, stdoutmark)  /* special case : don't remove() stdout */
           ) {
             FIO_remove(dstFileName);  /* remove decompression artefact; note: don't do anything special if remove() fails */
-        } else {  /* operation success */
-            if ( strcmp(dstFileName, stdoutmark) /* special case : don't chmod stdout */
-              && strcmp(dstFileName, nulmark)    /* special case : don't chmod /dev/null */
-              && transfer_permissions )          /* file permissions correctly extracted from src */
-                UTIL_setFileStat(dstFileName, &statbuf);  /* transfer file permissions from src into dst */
         }
     }
 
@@ -2451,7 +2463,7 @@ FIO_decompressMultipleFilenames(FIO_prefs_t* const prefs,
     if (outFileName) {
         unsigned u;
         if (!prefs->testMode) {
-            ress.dstFile = FIO_openDstFile(prefs, NULL, outFileName);
+            ress.dstFile = FIO_openDstFile(prefs, NULL, outFileName, DEFAULT_FILE_PERMISSIONS);
             if (ress.dstFile == 0) EXM_THROW(19, "cannot open %s", outFileName);
         }
         for (u=0; u<nbFiles; u++)
