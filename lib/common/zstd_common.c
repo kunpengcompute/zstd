@@ -17,7 +17,9 @@
 #include "zstd_deps.h"   /* ZSTD_malloc, ZSTD_calloc, ZSTD_free, ZSTD_memset */
 #include "error_private.h"
 #include "zstd_internal.h"
-
+#if defined(CONF_KZSTAR) || defined(CONF_KZSTAR_DC)  
+#include "zstar.h"
+#endif
 
 /*-****************************************
 *  Version

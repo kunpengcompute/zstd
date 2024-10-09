@@ -72,6 +72,9 @@
 #endif
 
 
+#ifdef CONF_KZSTAR_DC
+#include "zstar.h"
+#endif
 
 /*************************************
  * Multiple DDicts Hashset internals *
@@ -247,6 +250,9 @@ static void ZSTD_DCtx_resetParameters(ZSTD_DCtx* dctx)
 
 static void ZSTD_initDCtx_internal(ZSTD_DCtx* dctx)
 {
+#ifdef CONF_KZSTAR_DC
+    dctx->kzstardctx = NULL;
+#endif
     dctx->staticSize  = 0;
     dctx->ddict       = NULL;
     dctx->ddictLocal  = NULL;
@@ -299,11 +305,25 @@ static ZSTD_DCtx* ZSTD_createDCtx_internal(ZSTD_customMem customMem) {
 
 ZSTD_DCtx* ZSTD_createDCtx_advanced(ZSTD_customMem customMem)
 {
+#ifdef CONF_KZSTAR_DC
+    ZSTD_DCtx* dctx = ZSTD_createDCtx_internal(customMem);
+    if (dctx->kzstardctx == NULL) {
+        dctx->kzstardctx = ZstarDCtxCreate(NULL);
+    }
+    return dctx;
+#endif
     return ZSTD_createDCtx_internal(customMem);
 }
 
 ZSTD_DCtx* ZSTD_createDCtx(void)
 {
+#ifdef CONF_KZSTAR_DC
+    ZSTD_DCtx* dctx = ZSTD_createDCtx_internal(ZSTD_defaultCMem);
+    if (dctx->kzstardctx == NULL) {
+        dctx->kzstardctx = ZstarDCtxCreate(NULL);
+    }
+    return dctx;
+#endif
     DEBUGLOG(3, "ZSTD_createDCtx");
     return ZSTD_createDCtx_internal(ZSTD_defaultCMem);
 }
@@ -318,6 +338,11 @@ static void ZSTD_clearDict(ZSTD_DCtx* dctx)
 
 size_t ZSTD_freeDCtx(ZSTD_DCtx* dctx)
 {
+#ifdef CONF_KZSTAR_DC
+    if (dctx->kzstardctx != NULL) {
+        ZstarDCtxFree(dctx->kzstardctx);
+    }
+#endif
     if (dctx==NULL) return 0;   /* support free on NULL */
     RETURN_ERROR_IF(dctx->staticSize, memory_allocation, "not compatible with static DCtx");
     {   ZSTD_customMem const cMem = dctx->customMem;
@@ -1080,12 +1105,20 @@ static ZSTD_DDict const* ZSTD_getDDict(ZSTD_DCtx* dctx)
 
 size_t ZSTD_decompressDCtx(ZSTD_DCtx* dctx, void* dst, size_t dstCapacity, const void* src, size_t srcSize)
 {
+#ifdef CONF_KZSTAR_DC
+if (dctx->kzstardctx != NULL) {
+    return ZstarDecompressDCtx(dctx->kzstardctx, dst, dstCapacity, src, srcSize);
+}
+#endif
     return ZSTD_decompress_usingDDict(dctx, dst, dstCapacity, src, srcSize, ZSTD_getDDict(dctx));
 }
 
 
 size_t ZSTD_decompress(void* dst, size_t dstCapacity, const void* src, size_t srcSize)
 {
+#ifdef CONF_KZSTAR_DC
+    return ZstarDecompress(dst, dstCapacity, src, srcSize);
+#endif
 #if defined(ZSTD_HEAPMODE) && (ZSTD_HEAPMODE>=1)
     size_t regenSize;
     ZSTD_DCtx* const dctx =  ZSTD_createDCtx_internal(ZSTD_defaultCMem);

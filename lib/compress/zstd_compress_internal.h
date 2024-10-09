@@ -23,7 +23,9 @@
 #ifdef ZSTD_MULTITHREAD
 #  include "zstdmt_compress.h"
 #endif
-
+#ifdef CONF_KZSTAR
+#include "zstar.h"
+#endif
 #if defined (__cplusplus)
 extern "C" {
 #endif
@@ -362,6 +364,9 @@ typedef struct {
 } ZSTD_blockSplitCtx;
 
 struct ZSTD_CCtx_s {
+#ifdef CONF_KZSTAR
+    ZstarCCtx *kzstarcctx;
+#endif
     ZSTD_compressionStage_e stage;
     int cParamsChanged;                  /* == 1 if cParams(except wlog) or compression level are changed in requestedParams. Triggers transmission of new params to ZSTDMT (if available) then reset to 0. */
     int bmi2;                            /* == 1 if the CPU supports BMI2 and 0 otherwise. CPU support is determined dynamically once per context lifetime. */
