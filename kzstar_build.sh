@@ -5,8 +5,8 @@ SRC_PATH=$(pwd)
 print_help()
 {
     echo "--------------------------build kzstar Parameters:------------------------------------"
-    echo "sh build.sh install                       |  编译安装zstd和kzstar"
-    echo "sh build.sh clean                         |  清理环境"
+    echo "sh kzstar_build.sh install                       |  编译安装zstd和kzstar"
+    echo "sh kzstar_build.sh clean                         |  清理环境"
     echo "--------------------------------------------------------------------------------------"
     return
 }
