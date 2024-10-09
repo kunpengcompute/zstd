@@ -21,7 +21,9 @@
  *********************************************************/
 #include "../common/mem.h"             /* BYTE, U16, U32 */
 #include "../common/zstd_internal.h"   /* constants : MaxLL, MaxML, MaxOff, LLFSELog, etc. */
-
+#ifdef CONF_KZSTAR_DC
+#include "zstar.h"
+#endif
 
 
 /*-*******************************************************
@@ -124,6 +126,9 @@ typedef enum {
 
 struct ZSTD_DCtx_s
 {
+#ifdef CONF_KZSTAR_DC
+    ZstarDCtx* kzstardctx;
+#endif
     const ZSTD_seqSymbol* LLTptr;
     const ZSTD_seqSymbol* MLTptr;
     const ZSTD_seqSymbol* OFTptr;

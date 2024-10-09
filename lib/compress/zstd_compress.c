@@ -28,6 +28,9 @@
 #include "zstd_ldm.h"
 #include "zstd_compress_superblock.h"
 
+#ifdef CONF_KZSTAR
+#include "zstar.h"
+#endif
 /* ***************************************************************
 *  Tuning parameters
 *****************************************************************/
@@ -91,6 +94,13 @@ struct ZSTD_CDict_s {
 
 ZSTD_CCtx* ZSTD_createCCtx(void)
 {
+#ifdef CONF_KZSTAR
+    ZSTD_CCtx* cctx =  ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
+    if (cctx->kzstarcctx == NULL) {
+        cctx->kzstarcctx = ZstarCCtxCreate(NULL);
+    }
+    return cctx;
+#endif
     return ZSTD_createCCtx_advanced(ZSTD_defaultCMem);
 }
 
@@ -178,6 +188,11 @@ size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx)
     RETURN_ERROR_IF(cctx->staticSize, memory_allocation,
                     "not compatible with static CCtx");
     {
+#ifdef CONF_KZSTAR
+        if (cctx->kzstarcctx != NULL) {
+            ZstarCCtxFree(cctx->kzstarcctx);
+        }
+#endif
         int cctxInWorkspace = ZSTD_cwksp_owns_buffer(&cctx->workspace, cctx);
         ZSTD_freeCCtxContent(cctx);
         if (!cctxInWorkspace) {
@@ -4726,6 +4741,11 @@ size_t ZSTD_compressCCtx(ZSTD_CCtx* cctx,
                    const void* src, size_t srcSize,
                          int compressionLevel)
 {
+#ifdef CONF_KZSTAR
+    if (cctx->kzstarcctx != NULL) {
+        return ZstarCompressCCtx(cctx->kzstarcctx, dst, dstCapacity, src, srcSize, compressionLevel);
+    } 
+#endif
     DEBUGLOG(4, "ZSTD_compressCCtx (srcSize=%u)", (unsigned)srcSize);
     assert(cctx != NULL);
     return ZSTD_compress_usingDict(cctx, dst, dstCapacity, src, srcSize, NULL, 0, compressionLevel);
@@ -4735,6 +4755,9 @@ size_t ZSTD_compress(void* dst, size_t dstCapacity,
                const void* src, size_t srcSize,
                      int compressionLevel)
 {
+#ifdef CONF_KZSTAR
+    return ZstarCompress(dst, dstCapacity, src, srcSize, compressionLevel);
+#endif
     size_t result;
 #if ZSTD_COMPRESS_HEAPMODE
     ZSTD_CCtx* cctx = ZSTD_createCCtx();

@@ -99,6 +99,13 @@ ASFLAGS  += $(DEBUGFLAGS) $(MOREFLAGS) $(CFLAGS)
 LDFLAGS  += $(MOREFLAGS)
 FLAGS     = $(CPPFLAGS) $(CFLAGS) $(ASFLAGS) $(LDFLAGS)
 
+ifneq ($(wildcard /usr/local/kzstar/lib/libzstar.so),)
+KZSTAR_CFLAGS=-I/usr/local/kzstar/include -DCONF_KZSTAR -DCONF_KZSTAR_DC 
+KZSTAR_LDFLAGS=-L/usr/local/kzstar/lib -Wl,-rpath,/usr/local/kzstar/lib -lzstar
+CFLAGS+=$(KZSTAR_CFLAGS)
+LDFLAGS+=$(KZSTAR_LDFLAGS)
+endif
+
 ifndef ALREADY_APPENDED_NOEXECSTACK
 export ALREADY_APPENDED_NOEXECSTACK := 1
 ifeq ($(shell echo "int main(int argc, char* argv[]) { (void)argc; (void)argv; return 0; }" | $(CC) $(FLAGS) -z noexecstack -x c -Werror - -o $(VOID) 2>$(VOID) && echo 1 || echo 0),1)
