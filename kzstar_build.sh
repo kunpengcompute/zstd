@@ -27,7 +27,7 @@ unpackzstar(){
     mkdir -p /usr/local/kzstar/lib
     mkdir -p /usr/local/kzstar/include
 
-    tar -zxvf kzstar.tar.gz
+    unzip BoostKit-KZstar_1.0.0.zip
 
     cp ./zstar.h /usr/local/kzstar/include
     cp ./libsecurec.so /usr/local/kzstar/lib
