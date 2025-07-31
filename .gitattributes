@@ -8,7 +8,6 @@
 # Denote files that should not be modified.
 *.odt binary
 *.png binary
-*.zip binary
 
 # Visual Studio
 *.sln text eol=crlf

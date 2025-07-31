@@ -1,0 +1,631 @@
+diff --git a/lib/bpsf.c b/lib/bpsf.c
+new file mode 100644
+index 00000000..e93523fb
+--- /dev/null
++++ b/lib/bpsf.c
+@@ -0,0 +1,199 @@
++#include "bpsf.h"
++#include "zstd.h"
++#include "compress/zstd_compress.h"
++#include "common/zstd_internal.h"
++#include "decompress/zstd_decompress_internal.h"
++
++ZSTD_CCtx *BPSF_getCCtx(void) {
++    return ZSTD_createCCtx();
++}
++
++size_t BPSF_freeCCtx(ZSTD_CCtx *p_ctx) {
++    return ZSTD_freeCCtx(p_ctx);
++}
++
++ZSTD_DCtx *BPSF_getDCtx(void) {
++    return ZSTD_createDCtx();
++}
++
++size_t BPSF_freeDCtx(ZSTD_DCtx *p_ctx) {
++    return ZSTD_freeDCtx(p_ctx);
++}
++
++ZSTD_parameters
++BPSF_getParams(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode) {
++    return ZSTD_getParams_internal(compressionLevel, srcSizeHint, dictSize, mode);
++}
++
++void BPSF_init_CCtxParams(ZSTD_CCtx_params *cctxParams, const ZSTD_parameters *params, int compressionLevel) {
++    return ZSTD_CCtxParams_init_internal(cctxParams, params, compressionLevel);
++}
++
++void BPSF_compressBegin(ZSTD_CCtx *cctx, const void *dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
++                        ZSTD_dictTableLoadMethod_e dtlm, const ZSTD_CDict *cdict, const ZSTD_CCtx_params *params,
++                        U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff) {
++    ZSTD_compressBegin_internal(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff);
++}
++
++void BPSF_getSeqStore(ZSTD_CCtx *zc, const void *src, size_t srcSize) {
++    ZSTD_buildSeqStore(zc, src, srcSize);
++}
++
++U32 BPSF_update_window(ZSTD_window_t *window, void const *src, size_t srcSize, int forceNonContiguous) {
++    return ZSTD_window_update(window, src, srcSize, forceNonContiguous);
++}
++
++size_t BPSF_build_HUFTable(BYTE *dst, size_t dst_capacity, const BYTE *src, size_t srcSize, HUF_CElt *CTable) {
++    return HUF_build_table(dst, dst_capacity, src, srcSize, CTable);
++}
++
++size_t BPSF_loadHUFTable(const BYTE *src, HUF_DTable *dtable) {
++    return HUF_load_table(src, dtable);
++}
++
++ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(
++        const seqStore_t *seqStorePtr, size_t nbSeq,
++        const ZSTD_fseCTables_t *prevEntropy, ZSTD_fseCTables_t *nextEntropy,
++        BYTE *dst, const BYTE *const dstEnd,
++        ZSTD_strategy strategy, unsigned *countWorkspace,
++        void *entropyWorkspace, size_t entropyWkspSize) {
++    return ZSTD_buildSequencesStatistics(seqStorePtr, nbSeq, prevEntropy, nextEntropy, dst, dstEnd,
++                                         strategy, countWorkspace, entropyWorkspace, entropyWkspSize);
++}
++
++
++
++size_t BPSF_encodeSeqs(
++        void *dst, size_t dstCapacity,
++        FSE_CTable const *CTable_MatchLength, BYTE const *mlCodeTable,
++        FSE_CTable const *CTable_OffsetBits, BYTE const *ofCodeTable,
++        FSE_CTable const *CTable_LitLength, BYTE const *llCodeTable,
++        seqDef const *sequences, size_t nbSeq, int longOffsets, int bmi2) {
++    return ZSTD_encodeSequences(dst, dstCapacity, CTable_MatchLength, mlCodeTable, CTable_OffsetBits, 
++                                ofCodeTable, CTable_LitLength, llCodeTable, sequences, 
++                                nbSeq, longOffsets, bmi2);
++}
++
++extern size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymbol** DTablePtr,
++                                 symbolEncodingType_e type, unsigned max, U32 maxLog, 
++                                 const void* src, size_t srcSize,
++                                 const U32* baseValue, const U8* nbAdditionalBits,
++                                 const ZSTD_seqSymbol* defaultTable, U32 flagRepeatTable,
++                                 int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize, int bmi2);
++
++extern const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1];
++extern const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1];
++extern const ZSTD_seqSymbol ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1];
++
++size_t BPSF_decodeSeqTable(ZSTD_DCtx* dctx, size_t n_seq, const BYTE* p_src) {
++    const size_t src_size = 1024;
++    const BYTE* p_src_end = p_src + src_size;
++
++    symbolEncodingType_e const LLtype = (symbolEncodingType_e)(*p_src >> 6);
++    symbolEncodingType_e const OFtype = (symbolEncodingType_e)((*p_src >> 4) & 3);
++    symbolEncodingType_e const MLtype = (symbolEncodingType_e)((*p_src >> 2) & 3);
++    p_src++;
++
++
++    {
++        size_t const llhSize = ZSTD_buildSeqTable(
++                            dctx->entropy.LLTable, &dctx->LLTptr,
++                            LLtype, MaxLL, LLFSELog,
++                            p_src, p_src_end-p_src,
++                            LL_base, LL_bits,
++                            LL_defaultDTable, dctx->fseEntropy,
++                            dctx->ddictIsCold, n_seq,
++                            dctx->workspace, sizeof(dctx->workspace), 
++                            0);
++        RETURN_ERROR_IF(ZSTD_isError(llhSize), corruption_detected, "ZSTD_buildSeqTable failed");
++        p_src += llhSize;
++    }
++
++    {
++        size_t const ofhSize = ZSTD_buildSeqTable(dctx->entropy.OFTable, &dctx->OFTptr,
++                                                  OFtype, MaxOff, OffFSELog,
++                                                  p_src, p_src_end-p_src,
++                                                  OF_base, OF_bits,
++                                                  OF_defaultDTable, dctx->fseEntropy,
++                                                  dctx->ddictIsCold, n_seq,
++                                                  dctx->workspace, sizeof(dctx->workspace), 
++                                                  0);
++        RETURN_ERROR_IF(ZSTD_isError(ofhSize), corruption_detected, "ZSTD_buildSeqTable failed");
++        p_src += ofhSize;
++    }
++
++    {
++        size_t const mlhSize = ZSTD_buildSeqTable(dctx->entropy.MLTable, &dctx->MLTptr,
++                                                  MLtype, MaxML, MLFSELog,
++                                                  p_src, p_src_end-p_src,
++                                                  ML_base, ML_bits,
++                                                  ML_defaultDTable, dctx->fseEntropy,
++                                                  dctx->ddictIsCold, n_seq,
++                                                  dctx->workspace, sizeof(dctx->workspace), 
++                                                  0);
++        RETURN_ERROR_IF(ZSTD_isError(mlhSize), corruption_detected, "ZSTD_buildSeqTable failed");
++        p_src += mlhSize;
++    }
++
++    return 0;
++}
++
++typedef struct {
++    size_t state;
++    const ZSTD_seqSymbol* table;
++} ZSTD_fseState;
++
++typedef struct {
++    BIT_DStream_t DStream;
++    ZSTD_fseState stateLL;
++    ZSTD_fseState stateOffb;
++    ZSTD_fseState stateML;
++    size_t prevOffset[ZSTD_REP_NUM];
++} seqState_t;
++
++typedef struct {
++    size_t litLength;
++    size_t matchLength;
++    size_t offset;
++} seq_t;
++
++typedef enum { ZSTD_lo_isRegularOffset, ZSTD_lo_isLongOffset=1 } ZSTD_longOffset_e;
++
++extern void ZSTD_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const ZSTD_seqSymbol* dt);
++extern seq_t ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, const int isLastSeq);
++
++size_t BPSF_decodeSeqs (
++        ZSTD_DCtx* dctx, const void* seqStart, size_t seqSize, int nbSeq,
++        uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of
++) {
++    const BYTE* ip = (const BYTE*)seqStart;
++    const BYTE* const iend = ip + seqSize;
++
++    size_t i_seq = 0;
++    if (nbSeq) {
++        seqState_t seqState;
++        dctx->fseEntropy = 1;
++        seqState.prevOffset[0] = 1;
++        seqState.prevOffset[1] = 4;
++        seqState.prevOffset[2] = 8;
++
++        RETURN_ERROR_IF(ERR_isError(BIT_initDStream(&seqState.DStream, ip, iend-ip)), corruption_detected, "");
++        ZSTD_initFseState(&seqState.stateLL, &seqState.DStream, dctx->LLTptr);
++        ZSTD_initFseState(&seqState.stateOffb, &seqState.DStream, dctx->OFTptr);
++        ZSTD_initFseState(&seqState.stateML, &seqState.DStream, dctx->MLTptr);
++
++        for ( ; nbSeq ; nbSeq--) {
++            seq_t const sequence = ZSTD_decodeSequence(&seqState, 0, nbSeq==1);
++            p_ll[i_seq] = sequence.litLength;
++            p_ml[i_seq] = sequence.matchLength;
++            p_of[i_seq] = sequence.offset;
++            i_seq ++;
++        }
++
++
++        assert(nbSeq == 0);
++        RETURN_ERROR_IF(!BIT_endOfDStream(&seqState.DStream), corruption_detected, "");
++    }
++    
++    return 0;
++}
+\ No newline at end of file
+diff --git a/lib/bpsf.h b/lib/bpsf.h
+new file mode 100644
+index 00000000..274342e1
+--- /dev/null
++++ b/lib/bpsf.h
+@@ -0,0 +1,60 @@
++#ifndef BPSF_BPSF_H
++#define BPSF_BPSF_H
++
++#include <stdint.h>
++#include "zstd.h"
++#include "compress/zstd_compress.h"
++
++// LZ77
++ZSTD_CCtx* BPSF_getCCtx(void);
++size_t BPSF_freeCCtx(ZSTD_CCtx *p_cctx);
++ZSTD_DCtx* BPSF_getDCtx(void);
++size_t BPSF_freeDCtx(ZSTD_DCtx *p_cctx);
++
++ZSTD_parameters BPSF_getParams(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode);
++
++void BPSF_init_CCtxParams(ZSTD_CCtx_params* cctxParams, const ZSTD_parameters* params, int compressionLevel);
++
++void BPSF_compressBegin(ZSTD_CCtx* cctx,
++                        const void* dict, size_t dictSize,
++                        ZSTD_dictContentType_e dictContentType,
++                        ZSTD_dictTableLoadMethod_e dtlm,
++                        const ZSTD_CDict* cdict,
++                        const ZSTD_CCtx_params* params, U64 pledgedSrcSize,
++                        ZSTD_buffered_policy_e zbuff);
++    
++void BPSF_getSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize);
++
++U32 BPSF_update_window(ZSTD_window_t* window, void const* src, size_t srcSize, int forceNonContiguous);
++
++// Huffman
++size_t BPSF_build_HUFTable(BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, HUF_CElt* CTable);
++
++size_t BPSF_loadHUFTable(const BYTE* src, HUF_DTable* dtable);
++
++// FSE encode
++ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(
++        const seqStore_t *seqStorePtr, size_t nbSeq,
++        const ZSTD_fseCTables_t *prevEntropy, ZSTD_fseCTables_t *nextEntropy,
++        BYTE *dst, const BYTE *const dstEnd,
++        ZSTD_strategy strategy, unsigned *countWorkspace,
++        void *entropyWorkspace, size_t entropyWkspSize
++);
++
++size_t BPSF_encodeSeqs(
++        void* dst, size_t dstCapacity,
++        FSE_CTable const* CTable_MatchLength, BYTE const* mlCodeTable,
++        FSE_CTable const* CTable_OffsetBits, BYTE const* ofCodeTable,
++        FSE_CTable const* CTable_LitLength, BYTE const* llCodeTable,
++        seqDef const* sequences, size_t nbSeq, int longOffsets, int bmi2
++);
++
++// FSE decode
++size_t BPSF_decodeSeqTable(ZSTD_DCtx* dctx, size_t n_seq, const BYTE* p_src);
++
++size_t BPSF_decodeSeqs(
++    ZSTD_DCtx* dctx, const void* seqStart, size_t seqSize, int nbSeq,
++    uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of
++);
++
++#endif // BPSF_BPSF_H
+\ No newline at end of file
+diff --git a/lib/common/error_private.h b/lib/common/error_private.h
+index 0156010c..69bcdb82 100644
+--- a/lib/common/error_private.h
++++ b/lib/common/error_private.h
+@@ -13,10 +13,6 @@
+ #ifndef ERROR_H_MODULE
+ #define ERROR_H_MODULE
+ 
+-#if defined (__cplusplus)
+-extern "C" {
+-#endif
+-
+ 
+ /* ****************************************
+ *  Dependencies
+@@ -161,8 +157,4 @@ void _force_has_format_string(const char *format, ...) {
+         }                                                                          \
+     } while(0)
+ 
+-#if defined (__cplusplus)
+-}
+-#endif
+-
+ #endif /* ERROR_H_MODULE */
+diff --git a/lib/compress/huf_compress.c b/lib/compress/huf_compress.c
+index ea000723..2b7d4c21 100644
+--- a/lib/compress/huf_compress.c
++++ b/lib/compress/huf_compress.c
+@@ -1326,6 +1326,42 @@ unsigned HUF_optimalTableLog(
+     }
+ }
+ 
++size_t HUF_compress_4x (BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, const HUF_CElt* CTable) {
++    HUF_compress4X_usingCTable_internal(dst, dst_capacity, src, srcSize, CTable, 0);
++}
++
++size_t HUF_build_table (BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, HUF_CElt* CTable) {
++    unsigned huffLog = 11;
++    uint8_t workSpace [8192];
++    size_t wkspSize = sizeof(workSpace);
++
++    HUF_compress_tables_t* const table = (HUF_compress_tables_t*)HUF_alignUpWorkspace(workSpace, &wkspSize, ZSTD_ALIGNOF(size_t));
++    BYTE* const dst_limit = dst + dst_capacity;
++
++    DEBUGLOG(5, "HUF_compress_internal (srcSize=%zu)", srcSize);
++    HUF_STATIC_ASSERT(sizeof(*table) + HUF_WORKSPACE_MAX_ALIGNMENT <= HUF_WORKSPACE_SIZE);
++
++    if (wkspSize < sizeof(*table)) return ERROR(workSpace_tooSmall);
++    if (!srcSize) return 0;
++    if (!dst_capacity) return 0;
++    if (srcSize > HUF_BLOCKSIZE_MAX) return ERROR(srcSize_wrong);
++    if (huffLog > HUF_TABLELOG_MAX) return ERROR(tableLog_tooLarge);
++    if (!huffLog) huffLog = HUF_TABLELOG_DEFAULT;
++
++    unsigned maxSymbolValue = HUF_SYMBOLVALUE_MAX;
++
++    CHECK_V_F(largest, HIST_count_wksp (table->count, &maxSymbolValue, src, srcSize, table->wksps.hist_wksp, sizeof(table->wksps.hist_wksp)));
++
++    huffLog = HUF_optimalTableLog(huffLog, srcSize, maxSymbolValue, &table->wksps, sizeof(table->wksps), CTable, table->count, 0);
++
++    size_t const maxBits = HUF_buildCTable_wksp(CTable, table->count, maxSymbolValue, huffLog, &table->wksps.buildCTable_wksp, sizeof(table->wksps.buildCTable_wksp));
++    CHECK_F(maxBits);
++    huffLog = (U32)maxBits;
++    DEBUGLOG(6, "bit distribution completed (%zu symbols)", showCTableBits((CTable+1), maxSymbolValue+1));
++
++    return HUF_writeCTable_wksp(dst, dst_capacity, CTable, maxSymbolValue, huffLog, &table->wksps.writeCTable_wksp, sizeof(table->wksps.writeCTable_wksp));
++}
++
+ /* HUF_compress_internal() :
+  * `workSpace_align4` must be aligned on 4-bytes boundaries,
+  * and occupies the same space as a table of HUF_WORKSPACE_SIZE_U64 unsigned */
+@@ -1375,7 +1411,9 @@ HUF_compress_internal (void* dst, size_t dstSize,
+             CHECK_V_F(largestEnd, HIST_count_simple (table->count, &maxSymbolValueEnd, (const BYTE*)src + srcSize - SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE, SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE) );
+             largestTotal += largestEnd;
+         }
+-        if (largestTotal <= ((2 * SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE) >> 7)+4) return 0;   /* heuristic : probably not compressible enough */
++        if (largestTotal <= ((2 * SUSPECT_INCOMPRESSIBLE_SAMPLE_SIZE) >> 7)+4) {
++            return 0;   /* heuristic : probably not compressible enough */
++        }
+     }
+ 
+     /* Scan input and build symbol stats */
+@@ -1386,9 +1424,7 @@ HUF_compress_internal (void* dst, size_t dstSize,
+     DEBUGLOG(6, "histogram detail completed (%zu symbols)", showU32(table->count, maxSymbolValue+1));
+ 
+     /* Check validity of previous table */
+-    if ( repeat
+-      && *repeat == HUF_repeat_check
+-      && !HUF_validateCTable(oldHufTable, table->count, maxSymbolValue)) {
++    if ( repeat && *repeat == HUF_repeat_check && !HUF_validateCTable(oldHufTable, table->count, maxSymbolValue)) {
+         *repeat = HUF_repeat_none;
+     }
+     /* Heuristic : use existing table for small inputs */
+@@ -1409,8 +1445,7 @@ HUF_compress_internal (void* dst, size_t dstSize,
+     }
+ 
+     /* Write table description header */
+-    {   CHECK_V_F(hSize, HUF_writeCTable_wksp(op, dstSize, table->CTable, maxSymbolValue, huffLog,
+-                                              &table->wksps.writeCTable_wksp, sizeof(table->wksps.writeCTable_wksp)) );
++    {   CHECK_V_F(hSize, HUF_writeCTable_wksp(op, dstSize, table->CTable, maxSymbolValue, huffLog, &table->wksps.writeCTable_wksp, sizeof(table->wksps.writeCTable_wksp)) );
+         /* Check if using previous huffman table is beneficial */
+         if (repeat && *repeat != HUF_repeat_none) {
+             size_t const oldSize = HUF_estimateCompressedSize(oldHufTable, table->count, maxSymbolValue);
+diff --git a/lib/compress/zstd_compress.c b/lib/compress/zstd_compress.c
+index 9284e2a4..482cab91 100644
+--- a/lib/compress/zstd_compress.c
++++ b/lib/compress/zstd_compress.c
+@@ -27,6 +27,7 @@
+ #include "zstd_opt.h"
+ #include "zstd_ldm.h"
+ #include "zstd_compress_superblock.h"
++#include "zstd_compress.h"
+ #include  "../common/bits.h"      /* ZSTD_highbit32, ZSTD_rotateRight_U64 */
+ 
+ /* ***************************************************************
+@@ -376,7 +377,7 @@ size_t ZSTD_CCtxParams_init(ZSTD_CCtx_params* cctxParams, int compressionLevel)
+  * Initializes `cctxParams` from `params` and `compressionLevel`.
+  * @param compressionLevel If params are derived from a compression level then that compression level, otherwise ZSTD_NO_CLEVEL.
+  */
+-static void
++void
+ ZSTD_CCtxParams_init_internal(ZSTD_CCtx_params* cctxParams,
+                         const ZSTD_parameters* params,
+                               int compressionLevel)
+@@ -1610,7 +1611,7 @@ ZSTD_adjustCParams(ZSTD_compressionParameters cPar,
+ }
+ 
+ static ZSTD_compressionParameters ZSTD_getCParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode);
+-static ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode);
++ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode);
+ 
+ static void ZSTD_overrideCParams(
+               ZSTD_compressionParameters* cParams,
+@@ -2728,18 +2729,6 @@ static int ZSTD_blockSplitterEnabled(ZSTD_CCtx_params* cctxParams)
+     return (cctxParams->useBlockSplitter == ZSTD_ps_enable);
+ }
+ 
+-/* Type returned by ZSTD_buildSequencesStatistics containing finalized symbol encoding types
+- * and size of the sequences statistics
+- */
+-typedef struct {
+-    U32 LLtype;
+-    U32 Offtype;
+-    U32 MLtype;
+-    size_t size;
+-    size_t lastCountSize; /* Accounts for bug in 1.3.4. More detail in ZSTD_entropyCompressSeqStore_internal() */
+-    int longOffsets;
+-} ZSTD_symbolEncodingTypeStats_t;
+-
+ /* ZSTD_buildSequencesStatistics():
+  * Returns a ZSTD_symbolEncodingTypeStats_t, or a zstd error code in the `size` field.
+  * Modifies `nextEntropy` to have the appropriate values as a side effect.
+@@ -2747,7 +2736,7 @@ typedef struct {
+  *
+  * entropyWkspSize must be of size at least ENTROPY_WORKSPACE_SIZE - (MaxSeq + 1)*sizeof(U32)
+  */
+-static ZSTD_symbolEncodingTypeStats_t
++ZSTD_symbolEncodingTypeStats_t
+ ZSTD_buildSequencesStatistics(
+                 const seqStore_t* seqStorePtr, size_t nbSeq,
+                 const ZSTD_fseCTables_t* prevEntropy, ZSTD_fseCTables_t* nextEntropy,
+@@ -3199,7 +3188,7 @@ static size_t ZSTD_fastSequenceLengthSum(ZSTD_Sequence const* seqBuf, size_t seq
+ 
+ typedef enum { ZSTDbss_compress, ZSTDbss_noCompress } ZSTD_buildSeqStore_e;
+ 
+-static size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
++size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
+ {
+     ZSTD_matchState_t* const ms = &zc->blockState.matchState;
+     DEBUGLOG(5, "ZSTD_buildSeqStore (srcSize=%zu)", srcSize);
+@@ -3676,7 +3665,7 @@ ZSTD_buildBlockEntropyStats_literals(void* const src, size_t srcSize,
+  * Returns a ZSTD_symbolEncodingTypeStats_t with all encoding types as set_basic,
+  * and updates nextEntropy to the appropriate repeatMode.
+  */
+-static ZSTD_symbolEncodingTypeStats_t
++ZSTD_symbolEncodingTypeStats_t
+ ZSTD_buildDummySequencesStatistics(ZSTD_fseCTables_t* nextEntropy)
+ {
+     ZSTD_symbolEncodingTypeStats_t stats = {set_basic, set_basic, set_basic, 0, 0, 0};
+@@ -5110,7 +5099,7 @@ ZSTD_compress_insertDictionary(ZSTD_compressedBlockState_t* bs,
+ /*! ZSTD_compressBegin_internal() :
+  * Assumption : either @dict OR @cdict (or none) is non-NULL, never both
+  * @return : 0, or an error code */
+-static size_t ZSTD_compressBegin_internal(ZSTD_CCtx* cctx,
++size_t ZSTD_compressBegin_internal(ZSTD_CCtx* cctx,
+                                     const void* dict, size_t dictSize,
+                                     ZSTD_dictContentType_e dictContentType,
+                                     ZSTD_dictTableLoadMethod_e dtlm,
+@@ -7107,7 +7096,7 @@ ZSTD_compressionParameters ZSTD_getCParams(int compressionLevel, unsigned long l
+  *  same idea as ZSTD_getCParams()
+  * @return a `ZSTD_parameters` structure (instead of `ZSTD_compressionParameters`).
+  *  Fields of `ZSTD_frameParameters` are set to default values */
+-static ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode) {
++ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode) {
+     ZSTD_parameters params;
+     ZSTD_compressionParameters const cParams = ZSTD_getCParams_internal(compressionLevel, srcSizeHint, dictSize, mode);
+     DEBUGLOG(5, "ZSTD_getParams (cLevel=%i)", compressionLevel);
+diff --git a/lib/compress/zstd_compress.h b/lib/compress/zstd_compress.h
+new file mode 100644
+index 00000000..2ec00ce2
+--- /dev/null
++++ b/lib/compress/zstd_compress.h
+@@ -0,0 +1,44 @@
++#include "../common/allocations.h"
++#include "../common/zstd_deps.h"
++#include "../common/mem.h"
++#include "hist.h"
++#include "../common/fse.h"
++#include "../common/huf.h"
++#include "zstd_compress_internal.h"
++#include "zstd_compress_sequences.h"
++#include "zstd_compress_literals.h"
++#include "zstd_fast.h"
++#include "zstd_double_fast.h"
++#include "zstd_lazy.h"
++#include "zstd_opt.h"
++#include "zstd_ldm.h"
++#include "zstd_compress_superblock.h"
++#ifndef BPSF_ZSTD_COMPRESS_H
++#define BPSF_ZSTD_COMPRESS_H
++
++typedef struct {
++    U32 LLtype;
++    U32 Offtype;
++    U32 MLtype;
++    size_t size;
++    size_t lastCountSize;
++    int longOffsets;
++} ZSTD_symbolEncodingTypeStats_t;
++
++ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long srcSizeHint, size_t dictSize, ZSTD_cParamMode_e mode);
++
++size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize);
++
++size_t ZSTD_compressBegin_internal(ZSTD_CCtx* cctx, const void* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType, ZSTD_dictTableLoadMethod_e dtlm,
++                                    const ZSTD_CDict* cdict, const ZSTD_CCtx_params* params, U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff);
++
++void ZSTD_CCtxParams_init_internal(ZSTD_CCtx_params* cctxParams, const ZSTD_parameters* params, int compressionLevel);
++
++ZSTD_symbolEncodingTypeStats_t ZSTD_buildSequencesStatistics(const seqStore_t* seqStorePtr, size_t nbSeq, const ZSTD_fseCTables_t* prevEntropy,
++                                                            ZSTD_fseCTables_t* nextEntropy, BYTE* dst, const BYTE* const dstEnd, ZSTD_strategy strategy, 
++                                                            unsigned* countWorkspace, void* entropyWorkspace, size_t entropyWkspSize);
++
++size_t HUF_load_table(const BYTE* src, HUF_DTable* dtable);
++
++size_t HUF_build_table(BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, HUF_CElt* ctable);
++#endif // BPSF_ZSTD_COMPRESS_H
+\ No newline at end of file
+diff --git a/lib/decompress/huf_decompress.c b/lib/decompress/huf_decompress.c
+index f85dd0be..f498e57a 100644
+--- a/lib/decompress/huf_decompress.c
++++ b/lib/decompress/huf_decompress.c
+@@ -406,7 +406,7 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
+         U32 const maxTableLog = dtd.maxTableLog + 1;
+         U32 const targetTableLog = MIN(maxTableLog, HUF_DECODER_FAST_TABLELOG);
+         tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
+-        if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
++        // if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
+         dtd.tableType = 0;
+         dtd.tableLog = (BYTE)tableLog;
+         ZSTD_memcpy(DTable, &dtd, sizeof(dtd));
+@@ -941,6 +941,21 @@ static size_t HUF_decompress4X1_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t ds
+     return HUF_decompress4X1_usingDTable_internal(dst, dstSize, ip, cSrcSize, dctx, flags);
+ }
+ 
++size_t HUF_load_table (const BYTE* src, HUF_DTable* dtable) {
++    uint8_t workSpace [16384];
++    size_t wkspSize = sizeof(workSpace);
++    size_t src_len_capacity = 4096;
++    size_t hSize = HUF_readDTableX1_wksp(dtable, src, src_len_capacity, workSpace, wkspSize, 0);
++    if (HUF_isError(hSize))
++        return hSize;
++    else
++        return hSize;
++}
++
++size_t HUF_decompress_x4 (BYTE* dst, size_t dst_capacity, const void* src, size_t src_len, HUF_DTable* dtable) {
++    return HUF_decompress4X1_usingDTable_internal(dst, dst_capacity, src, src_len, dtable, 0);
++}
++
+ #endif /* HUF_FORCE_DECOMPRESS_X2 */
+ 
+ 
+diff --git a/lib/decompress/zstd_decompress_block.c b/lib/decompress/zstd_decompress_block.c
+index 76d7332e..378204e1 100644
+--- a/lib/decompress/zstd_decompress_block.c
++++ b/lib/decompress/zstd_decompress_block.c
+@@ -16,14 +16,14 @@
+ *********************************************************/
+ #include "../common/zstd_deps.h"   /* ZSTD_memcpy, ZSTD_memmove, ZSTD_memset */
+ #include "../common/compiler.h"    /* prefetch */
+-#include "../common/cpu.h"         /* bmi2 */
++#include "../common/cpu.h"
+ #include "../common/mem.h"         /* low level memory routines */
+ #define FSE_STATIC_LINKING_ONLY
+ #include "../common/fse.h"
+ #include "../common/huf.h"
+ #include "../common/zstd_internal.h"
++#include "zstd_ddict.h"
+ #include "zstd_decompress_internal.h"   /* ZSTD_DCtx */
+-#include "zstd_ddict.h"  /* ZSTD_DDictDictContent */
+ #include "zstd_decompress_block.h"
+ #include "../common/bits.h"  /* ZSTD_highbit32 */
+ 
+@@ -361,7 +361,7 @@ size_t ZSTD_decodeLiteralsBlock_wrapper(ZSTD_DCtx* dctx,
+  * - pretify output, report below, test with fuzzer to ensure it's correct */
+ 
+ /* Default FSE distribution table for Literal Lengths */
+-static const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
++const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
+      {  1,  1,  1, LL_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
+      /* nextState, nbAddBits, nbBits, baseVal */
+      {  0,  0,  4,    0},  { 16,  0,  4,    0},
+@@ -399,7 +399,7 @@ static const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1] = {
+ };   /* LL_defaultDTable */
+ 
+ /* Default FSE distribution table for Offset Codes */
+-static const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
++const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
+     {  1,  1,  1, OF_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
+     /* nextState, nbAddBits, nbBits, baseVal */
+     {  0,  0,  5,    0},     {  0,  6,  4,   61},
+@@ -422,7 +422,7 @@ static const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1] = {
+ 
+ 
+ /* Default FSE distribution table for Match Lengths */
+-static const ZSTD_seqSymbol ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1] = {
++const ZSTD_seqSymbol ML_defaultDTable[(1<<ML_DEFAULTNORMLOG)+1] = {
+     {  1,  1,  1, ML_DEFAULTNORMLOG},  /* header : fastMode, tableLog */
+     /* nextState, nbAddBits, nbBits, baseVal */
+     {  0,  0,  6,    3},  {  0,  0,  4,    4},
+@@ -644,7 +644,7 @@ void ZSTD_buildFSETable(ZSTD_seqSymbol* dt,
+ /*! ZSTD_buildSeqTable() :
+  * @return : nb bytes read from src,
+  *           or an error code if it fails */
+-static size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymbol** DTablePtr,
++size_t ZSTD_buildSeqTable(ZSTD_seqSymbol* DTableSpace, const ZSTD_seqSymbol** DTablePtr,
+                                  symbolEncodingType_e type, unsigned max, U32 maxLog,
+                                  const void* src, size_t srcSize,
+                                  const U32* baseValue, const U8* nbAdditionalBits,
+@@ -1188,7 +1188,7 @@ size_t ZSTD_execSequenceSplitLitBuffer(BYTE* op,
+ }
+ 
+ 
+-static void
++void
+ ZSTD_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const ZSTD_seqSymbol* dt)
+ {
+     const void* ptr = dt;
+@@ -1225,7 +1225,7 @@ typedef enum { ZSTD_lo_isRegularOffset, ZSTD_lo_isLongOffset=1 } ZSTD_longOffset
+  *                  only used in 32-bit mode
+  * @return : Sequence (litL + matchL + offset)
+  */
+-FORCE_INLINE_TEMPLATE seq_t
++seq_t
+ ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, const int isLastSeq)
+ {
+     seq_t seq;
