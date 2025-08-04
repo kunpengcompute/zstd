@@ -8,6 +8,9 @@ zstd 1.5.6
 ## 支持操作系统
 openEuler
 
+## 软件包下载链接
+[BPSF算法下载地址](https://gitee.com/kunpengcompute/zstd/releases/tag/ksal_bpsf)
+
 # 一、软件下载与环境准备
 ## 1. 安装rpmbuild工具
 （1）	创建路径并进入该路径
