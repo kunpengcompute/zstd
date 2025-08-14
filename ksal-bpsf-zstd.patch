@@ -1,14 +1,21 @@
 diff --git a/lib/bpsf.c b/lib/bpsf.c
 new file mode 100644
-index 00000000..e93523fb
+index 00000000..d3f11e79
 --- /dev/null
 +++ b/lib/bpsf.c
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,345 @@
++/*
++* 版权所有 (c) 华为技术有限公司 2025
++*/
++
 +#include "bpsf.h"
 +#include "zstd.h"
 +#include "compress/zstd_compress.h"
 +#include "common/zstd_internal.h"
 +#include "decompress/zstd_decompress_internal.h"
++
++#include "decompress/zstd_decompress_block.h"
++#include "mem.h"
 +
 +ZSTD_CCtx *BPSF_getCCtx(void) {
 +    return ZSTD_createCCtx();
@@ -35,17 +42,17 @@ index 00000000..e93523fb
 +    return ZSTD_CCtxParams_init_internal(cctxParams, params, compressionLevel);
 +}
 +
-+void BPSF_compressBegin(ZSTD_CCtx *cctx, const void *dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
++void BPSF_compressBegin(ZSTD_CCtx *cctx, const uint8_t* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
 +                        ZSTD_dictTableLoadMethod_e dtlm, const ZSTD_CDict *cdict, const ZSTD_CCtx_params *params,
 +                        U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff) {
 +    ZSTD_compressBegin_internal(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff);
 +}
 +
-+void BPSF_getSeqStore(ZSTD_CCtx *zc, const void *src, size_t srcSize) {
++void BPSF_getSeqStore(ZSTD_CCtx *zc, const uint8_t* src, size_t srcSize) {
 +    ZSTD_buildSeqStore(zc, src, srcSize);
 +}
 +
-+U32 BPSF_update_window(ZSTD_window_t *window, void const *src, size_t srcSize, int forceNonContiguous) {
++U32 BPSF_update_window(ZSTD_window_t *window, const uint8_t* src, size_t srcSize, int forceNonContiguous) {
 +    return ZSTD_window_update(window, src, srcSize, forceNonContiguous);
 +}
 +
@@ -57,24 +64,19 @@ index 00000000..e93523fb
 +    return HUF_load_table(src, dtable);
 +}
 +
-+ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(
-+        const seqStore_t *seqStorePtr, size_t nbSeq,
-+        const ZSTD_fseCTables_t *prevEntropy, ZSTD_fseCTables_t *nextEntropy,
-+        BYTE *dst, const BYTE *const dstEnd,
-+        ZSTD_strategy strategy, unsigned *countWorkspace,
-+        void *entropyWorkspace, size_t entropyWkspSize) {
++ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(const seqStore_t *seqStorePtr, size_t nbSeq, const ZSTD_fseCTables_t *prevEntropy, 
++                                                   ZSTD_fseCTables_t *nextEntropy, uint8_t *dst, const uint8_t* dstEnd, ZSTD_strategy strategy, 
++                                                   unsigned *countWorkspace, uint8_t *entropyWorkspace, size_t entropyWkspSize) {
 +    return ZSTD_buildSequencesStatistics(seqStorePtr, nbSeq, prevEntropy, nextEntropy, dst, dstEnd,
 +                                         strategy, countWorkspace, entropyWorkspace, entropyWkspSize);
 +}
 +
 +
 +
-+size_t BPSF_encodeSeqs(
-+        void *dst, size_t dstCapacity,
-+        FSE_CTable const *CTable_MatchLength, BYTE const *mlCodeTable,
-+        FSE_CTable const *CTable_OffsetBits, BYTE const *ofCodeTable,
-+        FSE_CTable const *CTable_LitLength, BYTE const *llCodeTable,
-+        seqDef const *sequences, size_t nbSeq, int longOffsets, int bmi2) {
++size_t BPSF_encodeSeqs(uint8_t *dst, size_t dstCapacity, const FSE_CTable* CTable_MatchLength, 
++                       const uint8_t* mlCodeTable, const FSE_CTable* CTable_OffsetBits, const uint8_t* ofCodeTable,
++                       const FSE_CTable* CTable_LitLength, const uint8_t* llCodeTable, const seqDef* sequences, 
++                       size_t nbSeq, int longOffsets, int bmi2) {
 +    return ZSTD_encodeSequences(dst, dstCapacity, CTable_MatchLength, mlCodeTable, CTable_OffsetBits, 
 +                                ofCodeTable, CTable_LitLength, llCodeTable, sequences, 
 +                                nbSeq, longOffsets, bmi2);
@@ -85,7 +87,8 @@ index 00000000..e93523fb
 +                                 const void* src, size_t srcSize,
 +                                 const U32* baseValue, const U8* nbAdditionalBits,
 +                                 const ZSTD_seqSymbol* defaultTable, U32 flagRepeatTable,
-+                                 int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize, int bmi2);
++                                 int ddictIsCold, int nbSeq, U32* wksp, size_t wkspSize, 
++                                 int bmi2);
 +
 +extern const ZSTD_seqSymbol LL_defaultDTable[(1<<LL_DEFAULTNORMLOG)+1];
 +extern const ZSTD_seqSymbol OF_defaultDTable[(1<<OF_DEFAULTNORMLOG)+1];
@@ -102,15 +105,14 @@ index 00000000..e93523fb
 +
 +
 +    {
-+        size_t const llhSize = ZSTD_buildSeqTable(
-+                            dctx->entropy.LLTable, &dctx->LLTptr,
-+                            LLtype, MaxLL, LLFSELog,
-+                            p_src, p_src_end-p_src,
-+                            LL_base, LL_bits,
-+                            LL_defaultDTable, dctx->fseEntropy,
-+                            dctx->ddictIsCold, n_seq,
-+                            dctx->workspace, sizeof(dctx->workspace), 
-+                            0);
++        size_t const llhSize = ZSTD_buildSeqTable(dctx->entropy.LLTable, &dctx->LLTptr,
++                                                  LLtype, MaxLL, LLFSELog,
++                                                  p_src, p_src_end-p_src,
++                                                  LL_base, LL_bits,
++                                                  LL_defaultDTable, dctx->fseEntropy,
++                                                  dctx->ddictIsCold, n_seq,
++                                                  dctx->workspace, sizeof(dctx->workspace), 
++                                                  0);
 +        RETURN_ERROR_IF(ZSTD_isError(llhSize), corruption_detected, "ZSTD_buildSeqTable failed");
 +        p_src += llhSize;
 +    }
@@ -168,10 +170,8 @@ index 00000000..e93523fb
 +extern void ZSTD_initFseState(ZSTD_fseState* DStatePtr, BIT_DStream_t* bitD, const ZSTD_seqSymbol* dt);
 +extern seq_t ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, const int isLastSeq);
 +
-+size_t BPSF_decodeSeqs (
-+        ZSTD_DCtx* dctx, const void* seqStart, size_t seqSize, int nbSeq,
-+        uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of
-+) {
++size_t BPSF_decodeSeqs (ZSTD_DCtx* dctx, const uint8_t* seqStart, size_t seqSize, 
++                        int nbSeq, uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of) {
 +    const BYTE* ip = (const BYTE*)seqStart;
 +    const BYTE* const iend = ip + seqSize;
 +
@@ -203,13 +203,161 @@ index 00000000..e93523fb
 +    
 +    return 0;
 +}
-\ No newline at end of file
++
++size_t BPSF_decodeSeqs_and_reconstruct(ZSTD_DCtx* dctx, const uint8_t* seqStart, size_t seqSize,
++                                        int nbSeq, uint8_t *p_dst, size_t max_dst_len, 
++                                        size_t dict_size, size_t *reconstructed_size) {
++    const BYTE *p_dict = dctx->litPtr;
++    const BYTE *p_dict_end = dctx->litPtr + dict_size;
++
++    const BYTE *p_lit = dctx->litPtr + dict_size;
++    const BYTE *p_lit_end = dctx->litPtr + dctx->litSize;
++
++    BYTE *p_dst_start = p_dst;
++    BYTE *p_dst_limit = p_dst + max_dst_len;
++
++    uint8_t backup [16];
++    MEM_COPY16B(backup, p_dst_limit);
++
++    S32 ll_state, of_state, ml_state;
++    U64 data;
++
++    const BYTE* p_src = (const BYTE*)seqStart;
++    size_t src_len = seqSize;
++
++    S32 prev_of[] = {1, 4, 8};
++
++    p_src += (src_len - 8);
++
++    #define FSE_READMOVE0(t,b,n) { if(n) { t=b+(data>>(64-n)); data<<=n;  } else {t=b;} }
++    #define FSE_READMOVE1(t,b,n)  {         t=b+(data>>(64-n)); data<<=n; } 
++
++    if (nbSeq) {
++        dctx->fseEntropy = 1;
++
++        U8 ll_m_bits = ((const ZSTD_seqSymbol_header*)dctx->LLTptr)->tableLog;
++        U8 of_m_bits = ((const ZSTD_seqSymbol_header*)dctx->OFTptr)->tableLog;
++        U8 ml_m_bits = ((const ZSTD_seqSymbol_header*)dctx->MLTptr)->tableLog;
++
++        const ZSTD_seqSymbol* ll_table = (dctx->LLTptr + 1);
++        const ZSTD_seqSymbol* of_table = (dctx->OFTptr + 1);
++        const ZSTD_seqSymbol* ml_table = (dctx->MLTptr + 1);
++
++        data = (1 | (*(U64*)p_src));
++        data <<= (8 - highbit_u9(p_src[7]));
++
++        FSE_READMOVE0(ll_state, 0, ll_m_bits);
++        FSE_READMOVE0(of_state, 0, of_m_bits);
++        FSE_READMOVE0(ml_state, 0, ml_m_bits);
++
++        for (int i_seq = 0; i_seq < nbSeq; ++i_seq) {
++            ZSTD_seqSymbol ll_item = ll_table[ll_state];
++            ZSTD_seqSymbol of_item = of_table[of_state];
++            ZSTD_seqSymbol ml_item = ml_table[ml_state];
++            S32 of, ml, ll;
++
++            {
++                int8_t c = trailbit_u64(data);
++                p_src -= (c>>3);
++                data = (1 | (*(U64*)p_src));
++                data <<= (c&7);
++            }
++
++            if (of_item.nbAdditionalBits > 1) {
++                FSE_READMOVE1(of, of_item.baseValue, of_item.nbAdditionalBits);
++                prev_of[2] = prev_of[1];
++                prev_of[1] = prev_of[0];
++                prev_of[0] = of;
++            } else {
++                U8 ll0 = (ll_item.baseValue == 0);
++                if (of_item.nbAdditionalBits == 0) {
++                    of = prev_of[ll0];
++                    prev_of[1] = prev_of[!ll0];
++                    prev_of[0] = of;
++                } else {
++                    FSE_READMOVE1(of, (of_item.baseValue+ll0), 1);
++                    size_t temp = (of==3) ? prev_of[0] -1 : prev_of[of];
++                    temp -= !temp;
++                    if (of != 1) prev_of[2] = prev_of[1];
++                    prev_of[1] = prev_of[0];
++                    prev_of[0] = of = temp;
++                }
++            }
++
++            FSE_READMOVE0(ml, ml_item.baseValue, ml_item.nbAdditionalBits);
++            FSE_READMOVE0(ll, ll_item.baseValue, ll_item.nbAdditionalBits);
++
++            if (UNLIKELY(of_item.nbAdditionalBits + ml_item.nbAdditionalBits + ll_item.nbAdditionalBits > 30)) {
++                int8_t c = trailbit_u64(data);
++                p_src -= (c>>3);
++                data   = (1 | (*(U64*)p_src));
++                data <<= (c&7);
++            }
++
++            FSE_READMOVE0(ll_state, ll_item.nextState, ll_item.nbBits);
++            FSE_READMOVE0(ml_state, ml_item.nextState, ml_item.nbBits);
++            FSE_READMOVE0(of_state, of_item.nextState, of_item.nbBits);
++
++            MEM_COPY16B(p_dst, p_lit);
++
++            if (UNLIKELY(ll > 16)) {
++                MEM_COPY(p_dst + 16, p_lit + 16, ll - 16);
++            }
++            p_dst += ll;
++            p_lit += ll;
++        
++
++            if (of > p_dst - p_dst_start) {
++                const U8 *dict_end = p_dict + dict_size;
++                const U8 *dict_match = p_dict_end - (of - (p_dst - p_dst_start));
++                if (dict_match + ml <= dict_end) {
++                    ZSTD_wildcopy(p_dst, dict_match, ml, ZSTD_overlap_src_before_dst);
++                } else {
++                    size_t copy_from_dict = dict_end - dict_match;
++                    ZSTD_wildcopy(p_dst, dict_match, copy_from_dict, ZSTD_overlap_src_before_dst);
++                    ZSTD_wildcopy(p_dst + copy_from_dict, p_dst_start, ml - copy_from_dict, ZSTD_overlap_src_before_dst);
++                }
++            } else {
++                const U8 *p_match = p_dst - of;
++                if (LIKELY(of >= 16)) {
++                    MEM_COPY(p_dst, p_match, ml);
++                } else if (UNLIKELY(of == 4)) {
++                    MEM_SET_4B(p_dst, *(uint32_t*)p_match, ml);
++                } else if (UNLIKELY(of == 2)) {
++                    MEM_SET_2B(p_dst, *(uint16_t*)p_match, ml);
++                } else if (UNLIKELY(of == 1)) {
++                    MEM_SET_1B(p_dst, *p_match, ml);
++                } else {
++                    U8 *op = p_dst;
++                    ZSTD_overlapCopy8(&op, &p_match, of);
++                    if (ml > 8) {
++                        ZSTD_wildcopy(op, p_match, (ptrdiff_t)ml - 8, ZSTD_overlap_src_before_dst);
++                    }
++                }
++            }
++            p_dst += ml;
++        }
++    }
++
++    {
++        size_t n_last_lit = p_lit_end - p_lit;
++        MEM_COPY(p_dst, p_lit, n_last_lit);
++        p_dst += n_last_lit;
++    }
++
++    MEM_COPY16B(p_dst_limit, backup);
++    *reconstructed_size = p_dst - p_dst_start;
++    return 0;
++}
 diff --git a/lib/bpsf.h b/lib/bpsf.h
 new file mode 100644
-index 00000000..274342e1
+index 00000000..b2c2e84f
 --- /dev/null
 +++ b/lib/bpsf.h
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,58 @@
++/*
++* 版权所有 (c) 华为技术有限公司 2025
++*/
 +#ifndef BPSF_BPSF_H
 +#define BPSF_BPSF_H
 +
@@ -227,74 +375,45 @@ index 00000000..274342e1
 +
 +void BPSF_init_CCtxParams(ZSTD_CCtx_params* cctxParams, const ZSTD_parameters* params, int compressionLevel);
 +
-+void BPSF_compressBegin(ZSTD_CCtx* cctx,
-+                        const void* dict, size_t dictSize,
-+                        ZSTD_dictContentType_e dictContentType,
-+                        ZSTD_dictTableLoadMethod_e dtlm,
-+                        const ZSTD_CDict* cdict,
-+                        const ZSTD_CCtx_params* params, U64 pledgedSrcSize,
-+                        ZSTD_buffered_policy_e zbuff);
++void BPSF_compressBegin(ZSTD_CCtx* cctx, const uint8_t* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
++                        ZSTD_dictTableLoadMethod_e dtlm, const ZSTD_CDict* cdict, const ZSTD_CCtx_params* params, 
++                        U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff);
 +    
-+void BPSF_getSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize);
++void BPSF_getSeqStore(ZSTD_CCtx* zc, const uint8_t* src, size_t srcSize);
 +
-+U32 BPSF_update_window(ZSTD_window_t* window, void const* src, size_t srcSize, int forceNonContiguous);
++U32 BPSF_update_window(ZSTD_window_t* window, const uint8_t* src, size_t srcSize, int forceNonContiguous);
 +
 +// Huffman
-+size_t BPSF_build_HUFTable(BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, HUF_CElt* CTable);
++size_t BPSF_build_HUFTable(uint8_t* dst, size_t dst_capacity, const uint8_t* src, size_t srcSize, HUF_CElt* CTable);
 +
-+size_t BPSF_loadHUFTable(const BYTE* src, HUF_DTable* dtable);
++size_t BPSF_loadHUFTable(const uint8_t* src, HUF_DTable* dtable);
 +
 +// FSE encode
-+ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(
-+        const seqStore_t *seqStorePtr, size_t nbSeq,
-+        const ZSTD_fseCTables_t *prevEntropy, ZSTD_fseCTables_t *nextEntropy,
-+        BYTE *dst, const BYTE *const dstEnd,
-+        ZSTD_strategy strategy, unsigned *countWorkspace,
-+        void *entropyWorkspace, size_t entropyWkspSize
-+);
++ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(const seqStore_t *seqStorePtr, size_t nbSeq, const ZSTD_fseCTables_t *prevEntropy, 
++                                                   ZSTD_fseCTables_t *nextEntropy, uint8_t *dst, const uint8_t* dstEnd, ZSTD_strategy strategy, 
++                                                   unsigned *countWorkspace, uint8_t *entropyWorkspace, size_t entropyWkspSize);
 +
-+size_t BPSF_encodeSeqs(
-+        void* dst, size_t dstCapacity,
-+        FSE_CTable const* CTable_MatchLength, BYTE const* mlCodeTable,
-+        FSE_CTable const* CTable_OffsetBits, BYTE const* ofCodeTable,
-+        FSE_CTable const* CTable_LitLength, BYTE const* llCodeTable,
-+        seqDef const* sequences, size_t nbSeq, int longOffsets, int bmi2
++size_t BPSF_encodeSeqs(uint8_t* dst, size_t dstCapacity,
++        const FSE_CTable* CTable_MatchLength, const uint8_t* mlCodeTable,
++        const FSE_CTable* CTable_OffsetBits, const uint8_t* ofCodeTable,
++        const FSE_CTable* CTable_LitLength, const uint8_t* llCodeTable,
++        const seqDef* sequences, size_t nbSeq, int longOffsets, int bmi2
 +);
 +
 +// FSE decode
-+size_t BPSF_decodeSeqTable(ZSTD_DCtx* dctx, size_t n_seq, const BYTE* p_src);
++size_t BPSF_decodeSeqTable(ZSTD_DCtx* dctx, size_t n_seq, const uint8_t* p_src);
 +
-+size_t BPSF_decodeSeqs(
-+    ZSTD_DCtx* dctx, const void* seqStart, size_t seqSize, int nbSeq,
-+    uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of
-+);
++size_t BPSF_decodeSeqs(ZSTD_DCtx* dctx, const uint8_t* seqStart, size_t seqSize, 
++                       int nbSeq, uint16_t *p_ll, uint16_t *p_ml, uint16_t *p_of);
++
++void ZSTD_setLiteralDict(ZSTD_DCtx* dctx, const uint8_t* litPtr, size_t litSize);
++
++size_t BPSF_decodeSeqs_and_reconstruct(ZSTD_DCtx* dctx, const uint8_t* seqStart, size_t seqSize,
++                                       int nbSeq, uint8_t *p_dst, size_t max_dst_len, 
++                                       size_t dict_size, size_t *reconstructed_size);
 +
 +#endif // BPSF_BPSF_H
 \ No newline at end of file
-diff --git a/lib/common/error_private.h b/lib/common/error_private.h
-index 0156010c..69bcdb82 100644
---- a/lib/common/error_private.h
-+++ b/lib/common/error_private.h
-@@ -13,10 +13,6 @@
- #ifndef ERROR_H_MODULE
- #define ERROR_H_MODULE
- 
--#if defined (__cplusplus)
--extern "C" {
--#endif
--
- 
- /* ****************************************
- *  Dependencies
-@@ -161,8 +157,4 @@ void _force_has_format_string(const char *format, ...) {
-         }                                                                          \
-     } while(0)
- 
--#if defined (__cplusplus)
--}
--#endif
--
- #endif /* ERROR_H_MODULE */
 diff --git a/lib/compress/huf_compress.c b/lib/compress/huf_compress.c
 index ea000723..2b7d4c21 100644
 --- a/lib/compress/huf_compress.c
@@ -520,19 +639,172 @@ index 00000000..2ec00ce2
 +#endif // BPSF_ZSTD_COMPRESS_H
 \ No newline at end of file
 diff --git a/lib/decompress/huf_decompress.c b/lib/decompress/huf_decompress.c
-index f85dd0be..f498e57a 100644
+index f85dd0be..ea6d2cf1 100644
 --- a/lib/decompress/huf_decompress.c
 +++ b/lib/decompress/huf_decompress.c
-@@ -406,7 +406,7 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
+@@ -24,6 +24,7 @@
+ #include "../common/zstd_internal.h"
+ #include "../common/bits.h"       /* ZSTD_highbit32, ZSTD_countTrailingZeros64 */
+ 
++#define OPTIMIZE_HUF_TABLE_COPY 1
+ /* **************************************************************
+ *  Constants
+ ****************************************************************/
+@@ -382,6 +383,12 @@ typedef struct {
+         BYTE huffWeight[HUF_SYMBOLVALUE_MAX + 1];
+ } HUF_ReadDTableX1_Workspace;
+ 
++#if OPTIMIZE_HUF_TABLE_COPY
++static U16 HUF_DEltX1_set1 (BYTE symbol, BYTE nbBits) {
++    U16 D = ((U16)(symbol << 8) + nbBits);
++    return D;
++}
++
+ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize, void* workSpace, size_t wkspSize, int flags)
+ {
+     U32 tableLog = 0;
+@@ -406,7 +413,131 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
          U32 const maxTableLog = dtd.maxTableLog + 1;
          U32 const targetTableLog = MIN(maxTableLog, HUF_DECODER_FAST_TABLELOG);
          tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
 -        if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
 +        // if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
++        dtd.tableType = 0;
++        dtd.tableLog = (BYTE)tableLog;
++        ZSTD_memcpy(DTable, &dtd, sizeof(dtd));
++    }
++
++    {   
++        int n;
++        int nextRankStart = 0;
++        int const unroll = 4;
++        int const nLimit = (int)nbSymbols - unroll + 1;
++        for (n=0; n<(int)tableLog+1; n++) {
++            U32 const curr = nextRankStart;
++            nextRankStart += wksp->rankVal[n];
++            wksp->rankStart[n] = curr;
++        }
++        for (n=0; n < nLimit; n += unroll) {
++            int u;
++            for (u=0; u < unroll; ++u) {
++                size_t const w = wksp->huffWeight[n+u];
++                wksp->symbols[wksp->rankStart[w]++] = (BYTE)(n+u);
++            }
++        }
++        for (; n < (int)nbSymbols; ++n) {
++            size_t const w = wksp->huffWeight[n];
++            wksp->symbols[wksp->rankStart[w]++] = (BYTE)n;
++        }
++    }
++
++    /* fill DTable
++     * We fill all entries of each weight in order.
++     * That way length is a constant for each iteration of the outer loop.
++     * We can switch based on the length to a different inner loop which is
++     * optimized for that particular case.
++     */
++    {   
++        U32 w;
++        int symbol = wksp->rankVal[0];
++        int rankStart = 0;
++        for (w=1; w<tableLog+1; ++w) {
++            int const symbolCount = wksp->rankVal[w];
++            int const length = (1 << w) >> 1;
++            int uStart = rankStart;
++            BYTE const nbBits = (BYTE)(tableLog + 1 - w);
++            int s;
++            switch (length) {
++            case 1:
++                for (s=0; s<symbolCount; ++s) {
++                    HUF_DEltX1 D;
++                    D.byte = wksp->symbols[symbol + s];
++                    D.nbBits = nbBits;
++                    dt[uStart] = D;
++                    uStart += 1;
++                }
++                break;
++            case 2:
++                for (s=0; s<symbolCount; ++s) {
++                    HUF_DEltX1 D;
++                    D.byte = wksp->symbols[symbol + s];
++                    D.nbBits = nbBits;
++                    dt[uStart+0] = D;
++                    dt[uStart+1] = D;
++                    uStart += 2;
++                }
++                break;
++            case 4:
++                for (s=0; s<symbolCount; s+=2) {
++                    U16 DL = HUF_DEltX1_set1(wksp->symbols[symbol + s], nbBits);
++                    U16 DH = HUF_DEltX1_set1(wksp->symbols[symbol + s + 1], nbBits);
++                    vst1q_u16((U16*)(dt+uStart), vcombine_u16(vdup_n_u16(DL), vdup_n_u16(DH)));
++                    uStart += 8;
++                }
++                break;
++            case 8:
++                for (s=0; s<symbolCount; ++s) {
++                    U16 D1 = HUF_DEltX1_set1(wksp->symbols[symbol + s], nbBits);
++                    vst1q_u16((U16*)(dt+uStart), vdupq_n_u16(D1));
++                    uStart += 8;
++                }
++                break;
++            default:
++                for (s=0; s<symbolCount; ++s) {
++                    U16 D1 = HUF_DEltX1_set1(wksp->symbols[symbol + s], nbBits);
++                    uint16x8_t vecD8 = vdupq_n_u16(D1);
++                    for (int u=0; u<length; u+=16) {
++                        vst1q_u16((U16*)(dt+uStart ), vecD8);
++                        vst1q_u16((U16*)(dt+uStart+8), vecD8);
++                        uStart += 16;
++                    }
++                }
++                break;
++            }
++            symbol += symbolCount;
++            rankStart += symbolCount * length;
++        }
++    }
++    return iSize;
++}
++
++#else
++size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize, void* workSpace, size_t wkspSize, int flags)
++{
++    U32 tableLog = 0;
++    U32 nbSymbols = 0;
++    size_t iSize;
++    void* const dtPtr = DTable + 1;
++    HUF_DEltX1* const dt = (HUF_DEltX1*)dtPtr;
++    HUF_ReadDTableX1_Workspace* wksp = (HUF_ReadDTableX1_Workspace*)workSpace;
++
++    DEBUG_STATIC_ASSERT(HUF_DECOMPRESS_WORKSPACE_SIZE >= sizeof(*wksp));
++    if (sizeof(*wksp) > wkspSize) return ERROR(tableLog_tooLarge);
++
++    DEBUG_STATIC_ASSERT(sizeof(DTableDesc) == sizeof(HUF_DTable));
++    /* ZSTD_memset(huffWeight, 0, sizeof(huffWeight)); */   /* is not necessary, even though some analyzer complain ... */
++
++    iSize = HUF_readStats_wksp(wksp->huffWeight, HUF_SYMBOLVALUE_MAX + 1, wksp->rankVal, &nbSymbols, &tableLog, src, srcSize, wksp->statsWksp, sizeof(wksp->statsWksp), flags);
++    if (HUF_isError(iSize)) return iSize;
++
++
++    /* Table header */
++    {   DTableDesc dtd = HUF_getDTableDesc(DTable);
++        U32 const maxTableLog = dtd.maxTableLog + 1;
++        U32 const targetTableLog = MIN(maxTableLog, HUF_DECODER_FAST_TABLELOG);
++        tableLog = HUF_rescaleStats(wksp->huffWeight, wksp->rankVal, nbSymbols, tableLog, targetTableLog);
++        // if (tableLog > (U32)(dtd.maxTableLog+1)) return ERROR(tableLog_tooLarge);   /* DTable too small, Huffman tree cannot fit in */
          dtd.tableType = 0;
          dtd.tableLog = (BYTE)tableLog;
          ZSTD_memcpy(DTable, &dtd, sizeof(dtd));
-@@ -941,6 +941,21 @@ static size_t HUF_decompress4X1_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t ds
+@@ -517,6 +648,7 @@ size_t HUF_readDTableX1_wksp(HUF_DTable* DTable, const void* src, size_t srcSize
+     }
+     return iSize;
+ }
++#endif
+ 
+ FORCE_INLINE_TEMPLATE BYTE
+ HUF_decodeSymbolX1(BIT_DStream_t* Dstream, const HUF_DEltX1* dt, const U32 dtLog)
+@@ -941,6 +1073,21 @@ static size_t HUF_decompress4X1_DCtx_wksp(HUF_DTable* dctx, void* dst, size_t ds
      return HUF_decompress4X1_usingDTable_internal(dst, dstSize, ip, cSrcSize, dctx, flags);
  }
  
@@ -554,6 +826,20 @@ index f85dd0be..f498e57a 100644
  #endif /* HUF_FORCE_DECOMPRESS_X2 */
  
  
+diff --git a/lib/decompress/zstd_ddict.c b/lib/decompress/zstd_ddict.c
+index 309ec0d0..199c145d 100644
+--- a/lib/decompress/zstd_ddict.c
++++ b/lib/decompress/zstd_ddict.c
+@@ -242,3 +242,8 @@ unsigned ZSTD_getDictID_fromDDict(const ZSTD_DDict* ddict)
+     if (ddict==NULL) return 0;
+     return ddict->dictID;
+ }
++
++void ZSTD_setLiteralDict(ZSTD_DCtx* dctx, BYTE const* litPtr, size_t litSize) {
++    dctx->litPtr = litPtr;
++    dctx->litSize = litSize;
++}
+\ No newline at end of file
 diff --git a/lib/decompress/zstd_decompress_block.c b/lib/decompress/zstd_decompress_block.c
 index 76d7332e..378204e1 100644
 --- a/lib/decompress/zstd_decompress_block.c
@@ -629,3 +915,102 @@ index 76d7332e..378204e1 100644
  ZSTD_decodeSequence(seqState_t* seqState, const ZSTD_longOffset_e longOffsets, const int isLastSeq)
  {
      seq_t seq;
+diff --git a/lib/mem.h b/lib/mem.h
+new file mode 100644
+index 00000000..4bf8597e
+--- /dev/null
++++ b/lib/mem.h
+@@ -0,0 +1,92 @@
++/*
++* 版权所有 (c) 华为技术有限公司 2025
++*/
++#ifndef MEM_H
++#define MEM_H
++
++#include <stdint.h>
++#include <arm_neon.h>
++#include "decompress/zstd_decompress_block.h"
++
++static inline void MEM_COPY16B (uint8_t *p_dst, const uint8_t *p_src) {
++    vst1q_u8(p_dst, vld1q_u8(p_src));
++}
++
++static inline void MEM_COPY (uint8_t *p_dst, const uint8_t *p_src, int len) {
++    do {
++        vst1q_u8(p_dst, vld1q_u8(p_src));
++        p_dst += 16;
++        p_src += 16;
++        len   -= 16;
++    } while (len > 0);
++}
++
++static inline void MEM_SET_1B (uint8_t *p_dst, const uint8_t value, int len) {
++    uint8x16_t vec_data = vdupq_n_u8(value);
++    do {
++        vst1q_u8(p_dst, vec_data);
++        p_dst += 16;
++        len   -= 16;
++    } while (len > 0);
++}
++
++static inline void MEM_SET_2B (uint8_t *p_dst, const uint16_t value, int len) {
++    uint16x8_t vec_data = vdupq_n_u16(value);
++    do {
++        vst1q_u16((uint16_t*)p_dst, vec_data);
++        p_dst += 16;
++        len   -= 16;
++    } while (len > 0);
++}
++
++static inline void MEM_SET_4B (uint8_t *p_dst, const uint32_t value, int len) {
++    uint32x4_t vec_data = vdupq_n_u32(value);
++    do {
++        vst1q_u32((uint32_t*)p_dst, vec_data);
++        p_dst += 16;
++        len   -= 16;
++    } while (len > 0);
++}
++
++static inline void MEM_LZ_MOVE (uint8_t *p_dst, uint8_t *p_match, int32_t ml, int32_t of) {
++    uint8x16_t vec_data = vld1q_u8(p_match);
++    do {
++        vst1q_u8(p_dst, vec_data);
++        p_dst += of;
++        ml    -= of;
++    } while (ml > 0);
++}
++
++static inline int8_t trailbit_u64 (uint64_t val) {
++    return (int8_t)__builtin_ctzll(val);
++}
++
++static inline int8_t highbit_u9 (uint16_t x) {
++    return 31 - __builtin_clz((uint32_t)x);
++}
++
++static void ZSTD_copy4(void* dst, const void* src) { ZSTD_memcpy(dst, src, 4); }
++
++static void ZSTD_overlapCopy8(BYTE** op, BYTE const** ip, size_t offset) {
++    assert(*ip <= *op);
++    if (offset < 8) {
++        /* close range match, overlap */
++        static const U32 dec32table[] = { 0, 1, 2, 1, 4, 4, 4, 4 };
++        static const int dec64table[] = { 8, 8, 8, 7, 8, 9, 10, 11};
++        int const sub2 = dec64table[offset];
++        (*op)[0] = (*ip)[0];
++        (*op)[1] = (*ip)[1];
++        (*op)[2] = (*ip)[2];
++        (*op)[3] = (*ip)[3];
++        *ip += dec32table[offset];
++        ZSTD_copy4(*op+4, *ip);
++        *ip -= sub2;
++    } else {
++        ZSTD_copy8(*op, *ip);
++    }
++    *ip += 8;
++    *op += 8;
++    assert(*op - *ip >= 8);
++}
++
++#endif // MEM_H
+\ No newline at end of file

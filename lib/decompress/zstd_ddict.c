@@ -242,3 +242,8 @@ unsigned ZSTD_getDictID_fromDDict(const ZSTD_DDict* ddict)
     if (ddict==NULL) return 0;
     return ddict->dictID;
 }
+
+void ZSTD_setLiteralDict(ZSTD_DCtx* dctx, BYTE const* litPtr, size_t litSize) {
+    dctx->litPtr = litPtr;
+    dctx->litSize = litSize;
+}

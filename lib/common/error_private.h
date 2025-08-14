@@ -13,6 +13,10 @@
 #ifndef ERROR_H_MODULE
 #define ERROR_H_MODULE
 
+#if defined (__cplusplus)
+extern "C" {
+#endif
+
 
 /* ****************************************
 *  Dependencies
@@ -156,5 +160,9 @@ void _force_has_format_string(const char *format, ...) {
             return err_code;                                                       \
         }                                                                          \
     } while(0)
+
+#if defined (__cplusplus)
+}
+#endif
 
 #endif /* ERROR_H_MODULE */
