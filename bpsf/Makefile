@@ -1,7 +1,7 @@
 CC = gcc
 
 BUILD_TYPE ?= release
-CFLAGS += -fPIC -fvisibility=hidden
+CFLAGS += -fPIC -fvisibility=hidden -O3
 
 ifeq ($(BUILD_TYPE),debug)
 	LIB_NAME = libksal_bpsf_debug.a
