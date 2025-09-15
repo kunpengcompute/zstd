@@ -1,26 +1,3 @@
-From 1d83ac4f03d3e986b9fc858dd358743ff8291a44 Mon Sep 17 00:00:00 2001
-From: minchen_bao <minchen_bao_dev@163.com>
-Date: Mon, 15 Sep 2025 18:00:12 +0800
-Subject: [PATCH] BPSF
-
----
- lib/bpsf.c                             | 364 +++++++++++++++++++++++++
- lib/bpsf.h                             |  66 +++++
- lib/compress/huf_compress.c            |  47 +++-
- lib/compress/zstd_compress.c           | 254 +++++++++++++++--
- lib/compress/zstd_compress.h           |  49 ++++
- lib/compress/zstd_lazy.c               |  34 +++
- lib/compress/zstd_lazy.h               |   1 +
- lib/decompress/huf_decompress.c        | 159 ++++++++++-
- lib/decompress/zstd_ddict.c            |   5 +
- lib/decompress/zstd_decompress_block.c |  16 +-
- lib/mem.h                              |  92 +++++++
- 11 files changed, 1051 insertions(+), 36 deletions(-)
- create mode 100644 lib/bpsf.c
- create mode 100644 lib/bpsf.h
- create mode 100644 lib/compress/zstd_compress.h
- create mode 100644 lib/mem.h
-
 diff --git a/lib/bpsf.c b/lib/bpsf.c
 new file mode 100644
 index 00000000..1d9b42f2
@@ -1402,6 +1379,3 @@ index 00000000..4bf8597e
 +
 +#endif // MEM_H
 \ No newline at end of file
--- 
-2.50.0.windows.1
-
