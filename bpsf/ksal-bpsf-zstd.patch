@@ -521,7 +521,7 @@ index ea000723..2b7d4c21 100644
          if (repeat && *repeat != HUF_repeat_none) {
              size_t const oldSize = HUF_estimateCompressedSize(oldHufTable, table->count, maxSymbolValue);
 diff --git a/lib/compress/zstd_compress.c b/lib/compress/zstd_compress.c
-index 9284e2a4..4d7fbdfa 100644
+index 9284e2a4..3e1d778f 100644
 --- a/lib/compress/zstd_compress.c
 +++ b/lib/compress/zstd_compress.c
 @@ -27,6 +27,7 @@
@@ -628,7 +628,7 @@ index 9284e2a4..4d7fbdfa 100644
 +size_t ZSTD_loadDictionaryContent_BPSF(ZSTD_matchState_t* ms,
 +										ldmState_t* ls,
 +										ZSTD_cwksp* ws,
-+										ZSTD_CCtx_Params const* params,
++										ZSTD_CCtx_params const* params,
 +										const void* src, size_t srcSize,
 +										ZSTD_dictTableLoadMethod_e dtlm,
 +										ZSTD_tableFillPurpose_e tfp,
@@ -794,7 +794,7 @@ index 9284e2a4..4d7fbdfa 100644
 +
 +    /* dict restricted modes */
 +    if (dictContentType == ZSTD_dct_rawContent)
-+        return ZSTD_loadDictionaryContent_BPSF(ms, ls, ws, params, dict, dictSize, dtlm, tfp, incrdictHashTable, prevDictSize);
++        return ZSTD_loadDictionaryContent_BPSF(ms, ls, ws, params, dict, dictSize, dtlm, tfp, incrDictHashTable, prevDictSize);
 +
 +    if (MEM_readLE32(dict) != ZSTD_MAGIC_DICTIONARY) {
 +        if (dictContentType == ZSTD_dct_auto) {

@@ -4775,7 +4775,7 @@ size_t ZSTD_compressBlock(ZSTD_CCtx* cctx, void* dst, size_t dstCapacity, const 
 size_t ZSTD_loadDictionaryContent_BPSF(ZSTD_matchState_t* ms,
 										ldmState_t* ls,
 										ZSTD_cwksp* ws,
-										ZSTD_CCtx_Params const* params,
+										ZSTD_CCtx_params const* params,
 										const void* src, size_t srcSize,
 										ZSTD_dictTableLoadMethod_e dtlm,
 										ZSTD_tableFillPurpose_e tfp,
@@ -5223,7 +5223,7 @@ ZSTD_compress_insertDictionary_BPSF(ZSTD_compressedBlockState_t* bs,
 
     /* dict restricted modes */
     if (dictContentType == ZSTD_dct_rawContent)
-        return ZSTD_loadDictionaryContent_BPSF(ms, ls, ws, params, dict, dictSize, dtlm, tfp, incrdictHashTable, prevDictSize);
+        return ZSTD_loadDictionaryContent_BPSF(ms, ls, ws, params, dict, dictSize, dtlm, tfp, incrDictHashTable, prevDictSize);
 
     if (MEM_readLE32(dict) != ZSTD_MAGIC_DICTIONARY) {
         if (dictContentType == ZSTD_dct_auto) {
