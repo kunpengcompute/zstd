@@ -629,6 +629,35 @@ size_t ZSTD_dedicatedDictSearch_lazy_search(size_t* offsetPtr, size_t ml, U32 nb
    Assumption : always within prefix (i.e. not within extDict) */
 FORCE_INLINE_TEMPLATE
 ZSTD_ALLOW_POINTER_OVERFLOW_ATTR
+U32 ZSTD_insertAndFindFirstIndex_internal_BPSF(
+                        ZSTD_matchState_t* ms,
+                        const ZSTD_compressionParameters* const cParams,
+                        const BYTE* ip, U32 const mls, U32 const lazySkipping, U32 *incrDictHashTable, size_t prevDictSize)
+{
+    U32* const hashTable  = ms->hashTable;
+    const U32 hashLog = cParams->hashLog;
+    U32* const chainTable = ms->chainTable;
+    const U32 chainMask = (1 << cParams->chainLog) - 1;
+    const BYTE* const base = ms->window.base;
+    const U32 target = (U32)(ip - base);
+    U32 idx = ms->nextToUpdate + (prevDictSize > 8 ? prevDictSize - 8 : prevDictSize)
+	size_t hashSize = (1U << hashLog) * sizeof(U32):
+
+    while(idx < target) { /* catch up */
+        size_t const h = ZSTD_hashPtr(base+idx, hashLog, mls);
+        NEXT_IN_CHAIN(idx, chainMask) = incrDictHashTable[h];
+        incrDictHashTable[h] = idx;
+        idx++;
+        /* Stop inserting every position when in the lazy skipping mode. */
+        if (lazySkipping)
+            break;
+    }
+	ZSTD_memcpy(hashTable, incrDictHashTable, hashSize);
+    ms->nextToUpdate = target;
+    return hashTable[ZSTD_hashPtr(ip, hashLog, mls)];
+}
+FORCE_INLINE_TEMPLATE
+ZSTD_ALLOW_POINTER_OVERFLOW_ATTR
 U32 ZSTD_insertAndFindFirstIndex_internal(
                         ZSTD_matchState_t* ms,
                         const ZSTD_compressionParameters* const cParams,
@@ -654,6 +683,11 @@ U32 ZSTD_insertAndFindFirstIndex_internal(
 
     ms->nextToUpdate = target;
     return hashTable[ZSTD_hashPtr(ip, hashLog, mls)];
+}
+
+U32 ZSTD_insertAndFindFirstIndex_BPSF(ZSTD_matchState_t* ms, const BYTE* ip, U32 *incrDictHashTable, size_t prevDictSize) {
+    const ZSTD_compressionParameters* const cParams = &ms->cParams;
+    return ZSTD_insertAndFindFirstIndex_internal_BPSF(ms, cParams, ip, ms->cParams.minMatch, /* lazySkipping*/ 0, incrDictHashTable, prevDictSize);
 }
 
 U32 ZSTD_insertAndFindFirstIndex(ZSTD_matchState_t* ms, const BYTE* ip) {

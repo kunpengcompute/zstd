@@ -32,6 +32,7 @@ extern "C" {
  || !defined(ZSTD_EXCLUDE_LAZY2_BLOCK_COMPRESSOR) \
  || !defined(ZSTD_EXCLUDE_BTLAZY2_BLOCK_COMPRESSOR)
 U32 ZSTD_insertAndFindFirstIndex(ZSTD_matchState_t* ms, const BYTE* ip);
+U32 ZSTD_insertAndFindFirstIndex_BPSF(ZSTD_matchState_t* ms, const BYTE* ip, U32 *incrDictHashTable, size_t prevDictSize);
 void ZSTD_row_update(ZSTD_matchState_t* const ms, const BYTE* ip);
 
 void ZSTD_dedicatedDictSearch_lazy_loadDictionary(ZSTD_matchState_t* ms, const BYTE* const ip);

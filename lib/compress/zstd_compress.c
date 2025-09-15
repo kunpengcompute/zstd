@@ -43,6 +43,8 @@
 #  define ZSTD_COMPRESS_HEAPMODE 0
 #endif
 
+#define ZSTD_INCREMENTAL_DICTIONARY_ENABLED 1
+
 /*!
  * ZSTD_HASHLOG3_MAX :
  * Maximum size of the hash table dedicated to find 3-bytes matches,
@@ -2132,8 +2134,13 @@ static size_t ZSTD_resetCCtx_internal(ZSTD_CCtx* zc,
 
         int const indexTooClose = ZSTD_indexTooCloseToMax(zc->blockState.matchState.window);
         int const dictTooBig = ZSTD_dictTooBig(loadedDictSize);
-        ZSTD_indexResetPolicy_e needsIndexReset =
-            (indexTooClose || dictTooBig || !zc->initialized) ? ZSTDirp_reset : ZSTDirp_continue;
+
+#if ZSTD_INCREMENTAL_DICTIONARY_ENABLED
+		// 增量字典需要重置
+		ZSTD_indexResetPolicy_e needIndexReset = ZSTDirp_reset;
+#else
+		ZSTD_indexREsetPolicy_e needIndexReset = (indexTooClose || dictTooBig || !zc->initialized) ? ZSTDirp_reset : ZSTDirp_continue;
+#endif
 
         size_t const neededSpace =
             ZSTD_estimateCCtxSize_usingCCtxParams_internal(
@@ -4765,6 +4772,145 @@ size_t ZSTD_compressBlock(ZSTD_CCtx* cctx, void* dst, size_t dstCapacity, const 
 /*! ZSTD_loadDictionaryContent() :
  *  @return : 0, or an error code
  */
+size_t ZSTD_loadDictionaryContent_BPSF(ZSTD_matchState_t* ms,
+										ldmState_t* ls,
+										ZSTD_cwksp* ws,
+										ZSTD_CCtx_Params const* params,
+										const void* src, size_t srcSize,
+										ZSTD_dictTableLoadMethod_e dtlm,
+										ZSTD_tableFillPurpose_e ftp,
+										U32 *incrDictHashTable, size_t prevDictSize)
+{
+	const BYTE* ip = (const BYTE*) src;
+    const BYTE* const iend = ip + srcSize;
+    int const loadLdmDict = params->ldmParams.enableLdm == ZSTD_ps_enable && ls != NULL;
+
+    /* Assert that the ms params match the params we're being given */
+    ZSTD_assertEqualCParams(params->cParams, ms->cParams);
+
+    {   /* Ensure large dictionaries can't cause index overflow */
+
+        /* Allow the dictionary to set indices up to exactly ZSTD_CURRENT_MAX.
+         * Dictionaries right at the edge will immediately trigger overflow
+         * correction, but I don't want to insert extra constraints here.
+         */
+        U32 maxDictSize = ZSTD_CURRENT_MAX - ZSTD_WINDOW_START_INDEX;
+
+        int const CDictTaggedIndices = ZSTD_CDictIndicesAreTagged(&params->cParams);
+        if (CDictTaggedIndices && tfp == ZSTD_tfp_forCDict) {
+            /* Some dictionary matchfinders in zstd use "short cache",
+             * which treats the lower ZSTD_SHORT_CACHE_TAG_BITS of each
+             * CDict hashtable entry as a tag rather than as part of an index.
+             * When short cache is used, we need to truncate the dictionary
+             * so that its indices don't overlap with the tag. */
+            U32 const shortCacheMaxDictSize = (1u << (32 - ZSTD_SHORT_CACHE_TAG_BITS)) - ZSTD_WINDOW_START_INDEX;
+            maxDictSize = MIN(maxDictSize, shortCacheMaxDictSize);
+            assert(!loadLdmDict);
+        }
+
+        /* If the dictionary is too large, only load the suffix of the dictionary. */
+        if (srcSize > maxDictSize) {
+            ip = iend - maxDictSize;
+            src = ip;
+            srcSize = maxDictSize;
+        }
+    }
+
+    if (srcSize > ZSTD_CHUNKSIZE_MAX) {
+        /* We must have cleared our windows when our source is this large. */
+        assert(ZSTD_window_isEmpty(ms->window));
+        if (loadLdmDict) assert(ZSTD_window_isEmpty(ls->window));
+    }
+    ZSTD_window_update(&ms->window, src, srcSize, /* forceNonContiguous */ 0);
+
+    DEBUGLOG(4, "ZSTD_loadDictionaryContent(): useRowMatchFinder=%d", (int)params->useRowMatchFinder);
+
+    if (loadLdmDict) { /* Load the entire dict into LDM matchfinders. */
+        ZSTD_window_update(&ls->window, src, srcSize, /* forceNonContiguous */ 0);
+        ls->loadedDictEnd = params->forceWindow ? 0 : (U32)(iend - ls->window.base);
+        ZSTD_ldm_fillHashTable(ls, ip, iend, &params->ldmParams);
+    }
+
+    /* If the dict is larger than we can reasonably index in our tables, only load the suffix. */
+    if (params->cParams.strategy < ZSTD_btultra) {
+        U32 maxDictSize = 8U << MIN(MAX(params->cParams.hashLog, params->cParams.chainLog), 28);
+        if (srcSize > maxDictSize) {
+            ip = iend - maxDictSize;
+            src = ip;
+            srcSize = maxDictSize;
+        }
+    }
+
+    ms->nextToUpdate = (U32)(ip - ms->window.base);
+    ms->loadedDictEnd = params->forceWindow ? 0 : (U32)(iend - ms->window.base);
+    ms->forceNonContiguous = params->deterministicRefPrefix;
+
+    if (srcSize <= HASH_READ_SIZE) return 0;
+
+    ZSTD_overflowCorrectIfNeeded(ms, ws, params, ip, iend);
+
+    switch(params->cParams.strategy)
+    {
+    case ZSTD_fast:
+        ZSTD_fillHashTable(ms, iend, dtlm, tfp);
+        break;
+    case ZSTD_dfast:
+#ifndef ZSTD_EXCLUDE_DFAST_BLOCK_COMPRESSOR
+        ZSTD_fillDoubleHashTable(ms, iend, dtlm, tfp);
+#else
+        assert(0); /* shouldn't be called: cparams should've been adjusted. */
+#endif
+        break;
+
+    case ZSTD_greedy:
+    case ZSTD_lazy:
+    case ZSTD_lazy2:
+#if !defined(ZSTD_EXCLUDE_GREEDY_BLOCK_COMPRESSOR) \
+ || !defined(ZSTD_EXCLUDE_LAZY_BLOCK_COMPRESSOR) \
+ || !defined(ZSTD_EXCLUDE_LAZY2_BLOCK_COMPRESSOR)
+        assert(srcSize >= HASH_READ_SIZE);
+        if (ms->dedicatedDictSearch) {
+            assert(ms->chainTable != NULL);
+            ZSTD_dedicatedDictSearch_lazy_loadDictionary(ms, iend-HASH_READ_SIZE);
+        } else {
+            assert(params->useRowMatchFinder != ZSTD_ps_auto);
+            if (params->useRowMatchFinder == ZSTD_ps_enable) {
+                size_t const tagTableSize = ((size_t)1 << params->cParams.hashLog);
+                ZSTD_memset(ms->tagTable, 0, tagTableSize);
+                ZSTD_row_update(ms, iend-HASH_READ_SIZE);
+                DEBUGLOG(4, "Using row-based hash table for lazy dict");
+            } else {
+                ZSTD_insertAndFindFirstIndex_BPSF(ms, iend-HASH_READ_SIZE, incrDictHashTable, prevDictSize);
+                DEBUGLOG(4, "Using chain-based hash table for lazy dict");
+            }
+        }
+#else
+        assert(0); /* shouldn't be called: cparams should've been adjusted. */
+#endif
+        break;
+
+    case ZSTD_btlazy2:   /* we want the dictionary table fully sorted */
+    case ZSTD_btopt:
+    case ZSTD_btultra:
+    case ZSTD_btultra2:
+#if !defined(ZSTD_EXCLUDE_BTLAZY2_BLOCK_COMPRESSOR) \
+ || !defined(ZSTD_EXCLUDE_BTOPT_BLOCK_COMPRESSOR) \
+ || !defined(ZSTD_EXCLUDE_BTULTRA_BLOCK_COMPRESSOR)
+        assert(srcSize >= HASH_READ_SIZE);
+        ZSTD_updateTree(ms, iend-HASH_READ_SIZE, iend);
+#else
+        assert(0); /* shouldn't be called: cparams should've been adjusted. */
+#endif
+        break;
+
+    default:
+        assert(0);  /* not possible : not a valid strategy id */
+    }
+
+    ms->nextToUpdate = (U32)(iend - ms->window.base);
+    return 0;
+}
+
 static size_t ZSTD_loadDictionaryContent(ZSTD_matchState_t* ms,
                                          ldmState_t* ls,
                                          ZSTD_cwksp* ws,
@@ -5055,6 +5201,46 @@ static size_t ZSTD_loadZstdDictionary(ZSTD_compressedBlockState_t* bs,
 /** ZSTD_compress_insertDictionary() :
 *   @return : dictID, or an error code */
 static size_t
+ZSTD_compress_insertDictionary_BPSF(ZSTD_compressedBlockState_t* bs,
+                               ZSTD_matchState_t* ms,
+                               ldmState_t* ls,
+                               ZSTD_cwksp* ws,
+                         const ZSTD_CCtx_params* params,
+                         const void* dict, size_t dictSize,
+                               ZSTD_dictContentType_e dictContentType,
+                               ZSTD_dictTableLoadMethod_e dtlm,
+                               ZSTD_tableFillPurpose_e tfp,
+                               void* workspace,
+							   U32 *incrDictHashTable, size_t prevDictSize)
+{
+    DEBUGLOG(4, "ZSTD_compress_insertDictionary (dictSize=%u)", (U32)dictSize);
+    if ((dict==NULL) || (dictSize<8)) {
+        RETURN_ERROR_IF(dictContentType == ZSTD_dct_fullDict, dictionary_wrong, "");
+        return 0;
+    }
+
+    //ZSTD_reset_compressedBlockState(bs);
+
+    /* dict restricted modes */
+    if (dictContentType == ZSTD_dct_rawContent)
+        return ZSTD_loadDictionaryContent_BPSF(ms, ls, ws, params, dict, dictSize, dtlm, tfp, incrdictHashTable, prevDictSize);
+
+    if (MEM_readLE32(dict) != ZSTD_MAGIC_DICTIONARY) {
+        if (dictContentType == ZSTD_dct_auto) {
+            DEBUGLOG(4, "raw content dictionary detected");
+            return ZSTD_loadDictionaryContent(
+                ms, ls, ws, params, dict, dictSize, dtlm, tfp);
+        }
+        RETURN_ERROR_IF(dictContentType == ZSTD_dct_fullDict, dictionary_wrong, "");
+        assert(0);   /* impossible */
+    }
+
+    /* dict as full zstd dictionary */
+    return ZSTD_loadZstdDictionary(
+        bs, ms, ws, params, dict, dictSize, dtlm, tfp, workspace);
+}
+
+static size_t
 ZSTD_compress_insertDictionary(ZSTD_compressedBlockState_t* bs,
                                ZSTD_matchState_t* ms,
                                ldmState_t* ls,
@@ -5099,6 +5285,43 @@ ZSTD_compress_insertDictionary(ZSTD_compressedBlockState_t* bs,
 /*! ZSTD_compressBegin_internal() :
  * Assumption : either @dict OR @cdict (or none) is non-NULL, never both
  * @return : 0, or an error code */
+size_t ZSTD_compressBegin_internal_BPSF(ZSTD_CCtx* cctx,
+                                    const void* dict, size_t dictSize,
+                                    ZSTD_dictContentType_e dictContentType,
+                                    ZSTD_dictTableLoadMethod_e dtlm,
+                                    const ZSTD_CDict* cdict,
+                                    const ZSTD_CCtx_params* params, U64 pledgedSrcSize,
+                                    ZSTD_buffered_policy_e zbuff,
+									U32 *incrDictHashTable, size_t prevDictSize)
+{
+    size_t const dictContentSize = cdict ? cdict->dictContentSize : dictSize;
+#if ZSTD_TRACE
+    cctx->traceCtx = (ZSTD_trace_compress_begin != NULL) ? ZSTD_trace_compress_begin(cctx) : 0;
+#endif
+    DEBUGLOG(4, "ZSTD_compressBegin_internal: wlog=%u", params->cParams.windowLog);
+    /* params are supposed to be fully validated at this point */
+    assert(!ZSTD_isError(ZSTD_checkCParams(params->cParams)));
+    assert(!((dict) && (cdict)));  /* either dict or cdict, not both */
+    
+    FORWARD_IF_ERROR(ZSTD_resetCCtx_internal(cctx, params, pledgedSrcSize, dictContentSize, ZSTDcrp_makeClean, zbuff) , "");
+    {   size_t const dictID = cdict ?
+                ZSTD_compress_insertDictionary(
+                        cctx->blockState.prevCBlock, &cctx->blockState.matchState,
+                        &cctx->ldmState, &cctx->workspace, &cctx->appliedParams, cdict->dictContent,
+                        cdict->dictContentSize, cdict->dictContentType, dtlm,
+                        ZSTD_tfp_forCCtx, cctx->entropyWorkspace)
+              : ZSTD_compress_insertDictionary_BPSF(
+                        cctx->blockState.prevCBlock, &cctx->blockState.matchState,
+                        &cctx->ldmState, &cctx->workspace, &cctx->appliedParams, dict, dictSize,
+                        dictContentType, dtlm, ZSTD_tfp_forCCtx, cctx->entropyWorkspace, incrDictHashTable, prevDictSize);
+        FORWARD_IF_ERROR(dictID, "ZSTD_compress_insertDictionary failed");
+        assert(dictID <= UINT_MAX);
+        cctx->dictID = (U32)dictID;
+        cctx->dictContentSize = dictContentSize;
+    }
+    return 0;
+}
+
 size_t ZSTD_compressBegin_internal(ZSTD_CCtx* cctx,
                                     const void* dict, size_t dictSize,
                                     ZSTD_dictContentType_e dictContentType,
