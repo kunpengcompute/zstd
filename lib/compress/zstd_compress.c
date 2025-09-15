@@ -2137,9 +2137,9 @@ static size_t ZSTD_resetCCtx_internal(ZSTD_CCtx* zc,
 
 #if ZSTD_INCREMENTAL_DICTIONARY_ENABLED
 		// 增量字典需要重置
-		ZSTD_indexResetPolicy_e needIndexReset = ZSTDirp_reset;
+		ZSTD_indexResetPolicy_e needsIndexReset = ZSTDirp_reset;
 #else
-		ZSTD_indexREsetPolicy_e needIndexReset = (indexTooClose || dictTooBig || !zc->initialized) ? ZSTDirp_reset : ZSTDirp_continue;
+		ZSTD_indexREsetPolicy_e needsIndexReset = (indexTooClose || dictTooBig || !zc->initialized) ? ZSTDirp_reset : ZSTDirp_continue;
 #endif
 
         size_t const neededSpace =
@@ -4778,7 +4778,7 @@ size_t ZSTD_loadDictionaryContent_BPSF(ZSTD_matchState_t* ms,
 										ZSTD_CCtx_Params const* params,
 										const void* src, size_t srcSize,
 										ZSTD_dictTableLoadMethod_e dtlm,
-										ZSTD_tableFillPurpose_e ftp,
+										ZSTD_tableFillPurpose_e tfp,
 										U32 *incrDictHashTable, size_t prevDictSize)
 {
 	const BYTE* ip = (const BYTE*) src;

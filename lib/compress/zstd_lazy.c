@@ -640,8 +640,8 @@ U32 ZSTD_insertAndFindFirstIndex_internal_BPSF(
     const U32 chainMask = (1 << cParams->chainLog) - 1;
     const BYTE* const base = ms->window.base;
     const U32 target = (U32)(ip - base);
-    U32 idx = ms->nextToUpdate + (prevDictSize > 8 ? prevDictSize - 8 : prevDictSize)
-	size_t hashSize = (1U << hashLog) * sizeof(U32):
+    U32 idx = ms->nextToUpdate + (prevDictSize > 8 ? prevDictSize - 8 : prevDictSize);
+	size_t hashSize = (1U << hashLog) * sizeof(U32);
 
     while(idx < target) { /* catch up */
         size_t const h = ZSTD_hashPtr(base+idx, hashLog, mls);

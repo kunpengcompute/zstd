@@ -39,7 +39,7 @@ void BPSF_init_CCtxParams(ZSTD_CCtx_params *cctxParams, const ZSTD_parameters *p
 void BPSF_compressBegin(ZSTD_CCtx *cctx, const uint8_t* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
                         ZSTD_dictTableLoadMethod_e dtlm, const ZSTD_CDict *cdict, const ZSTD_CCtx_params *params,
                         U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff, uint32_t *incrDictHashTable, size_t prevDictSize) {
-    ZSTD_compressBegin_internal(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff, incrDictHashTable, prevDictSize);
+    ZSTD_compressBegin_internal_BPSF(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff, incrDictHashTable, prevDictSize);
 }
 
 void BPSF_getSeqStore(ZSTD_CCtx *zc, const uint8_t* src, size_t srcSize) {
