@@ -38,8 +38,8 @@ void BPSF_init_CCtxParams(ZSTD_CCtx_params *cctxParams, const ZSTD_parameters *p
 
 void BPSF_compressBegin(ZSTD_CCtx *cctx, const uint8_t* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType,
                         ZSTD_dictTableLoadMethod_e dtlm, const ZSTD_CDict *cdict, const ZSTD_CCtx_params *params,
-                        U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff) {
-    ZSTD_compressBegin_internal(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff);
+                        U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff, uint32_t *incrDictHashTable, size_t prevDictSize) {
+    ZSTD_compressBegin_internal_BPSF(cctx, dict, dictSize, dictContentType, dtlm, cdict, params, pledgedSrcSize, zbuff, incrDictHashTable, prevDictSize);
 }
 
 void BPSF_getSeqStore(ZSTD_CCtx *zc, const uint8_t* src, size_t srcSize) {
@@ -54,8 +54,12 @@ size_t BPSF_build_HUFTable(BYTE *dst, size_t dst_capacity, const BYTE *src, size
     return HUF_build_table(dst, dst_capacity, src, srcSize, CTable);
 }
 
-size_t BPSF_loadHUFTable(const BYTE *src, HUF_DTable *dtable) {
-    return HUF_load_table(src, dtable);
+size_t BPSF_loadHUFTable(const BYTE *src, HUF_DTable *dtable, size_t len_chuftab) {
+    return HUF_load_table(src, dtable, len_chuftab);
+}
+
+size_t BPSF_loadHUFTable_X2(const BYTE *src, HUF_DTable *dtable, size_t len_chuftab) {
+	return HUF_load_table_X2(src, dtable, len_chuftab);
 }
 
 ZSTD_symbolEncodingTypeStats_t BPSF_buildSeqsStats(const seqStore_t *seqStorePtr, size_t nbSeq, const ZSTD_fseCTables_t *prevEntropy, 
@@ -245,11 +249,13 @@ size_t BPSF_decodeSeqs_and_reconstruct(ZSTD_DCtx* dctx, const uint8_t* seqStart,
         FSE_READMOVE0(ml_state, 0, ml_m_bits);
 
         for (int i_seq = 0; i_seq < nbSeq; ++i_seq) {
-            ZSTD_seqSymbol ll_item = ll_table[ll_state];
-            ZSTD_seqSymbol of_item = of_table[of_state];
-            ZSTD_seqSymbol ml_item = ml_table[ml_state];
             S32 of, ml, ll;
-
+			ZSTD_seqSymbol ll_item, of_item, ml_item;
+			
+			ZSTD_memcpy((void*)&ll_item, (void*)(ll_table + ll_state), sizeof(ZSTD_seqSymbol));
+			ZSTD_memcpy((void*)&of_item, (void*)(of_table + of_state), sizeof(ZSTD_seqSymbol));
+			ZSTD_memcpy((void*)&ml_item, (void*)(ml_table + ml_state), sizeof(ZSTD_seqSymbol));
+			
             {
                 int8_t c = trailbit_u64(data);
                 p_src -= (c>>3);
@@ -342,4 +348,17 @@ size_t BPSF_decodeSeqs_and_reconstruct(ZSTD_DCtx* dctx, const uint8_t* seqStart,
     MEM_COPY16B(p_dst_limit, backup);
     *reconstructed_size = p_dst - p_dst_start;
     return 0;
+}
+
+void BPSF_hashReset(ZSTD_CCtx *cCtx){
+	XXH64_reset(&cCtx->xxhState, 0);
+}
+
+void BPSF_hashUpdate(ZSTD_CCtx *cCtx, const uint8_t *src, size_t srcSize){
+	XXH64_update(&cCtx->xxhState, (const void*) src, srcSize);
+}
+
+uint16_t BPSF_hashDigest(ZSTD_CCtx *cCtx){
+	U16 const checksum = (U16) XXH64_digest(&cCtx->xxhState);
+	return checksum;
 }

@@ -29,6 +29,9 @@ ZSTD_parameters ZSTD_getParams_internal(int compressionLevel, unsigned long long
 
 size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize);
 
+size_t ZSTD_compressBegin_internal_BPSF(ZSTD_CCtx* cctx, const void* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType, ZSTD_dictTableLoadMethod_e dtlm,
+                                    const ZSTD_CDict* cdict, const ZSTD_CCtx_params* params, U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff, U32 *incrDictHashTable, size_t prevDictSize);
+
 size_t ZSTD_compressBegin_internal(ZSTD_CCtx* cctx, const void* dict, size_t dictSize, ZSTD_dictContentType_e dictContentType, ZSTD_dictTableLoadMethod_e dtlm,
                                     const ZSTD_CDict* cdict, const ZSTD_CCtx_params* params, U64 pledgedSrcSize, ZSTD_buffered_policy_e zbuff);
 
@@ -38,7 +41,9 @@ ZSTD_symbolEncodingTypeStats_t ZSTD_buildSequencesStatistics(const seqStore_t* s
                                                             ZSTD_fseCTables_t* nextEntropy, BYTE* dst, const BYTE* const dstEnd, ZSTD_strategy strategy, 
                                                             unsigned* countWorkspace, void* entropyWorkspace, size_t entropyWkspSize);
 
-size_t HUF_load_table(const BYTE* src, HUF_DTable* dtable);
-
 size_t HUF_build_table(BYTE* dst, size_t dst_capacity, const BYTE* src, size_t srcSize, HUF_CElt* ctable);
+
+size_t HUF_load_table(const BYTE* src, HUF_DTable* dtable, size_t len_chuftab);
+
+size_t HUF_load_table_X2(const BYTE* src, HUF_DTable* dtable, size_t len_chuftab);
 #endif // BPSF_ZSTD_COMPRESS_H
