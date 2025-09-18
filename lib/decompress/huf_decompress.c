@@ -11,6 +11,7 @@
  * in the COPYING file in the root directory of this source tree).
  * You may select, at your option, one of the above-listed licenses.
 ****************************************************************** */
+#define   OPTIMIZE_LIT_HUF_DECODE   1
 
 /* **************************************************************
 *  Dependencies
@@ -843,9 +844,110 @@ HUF_decompress4X1_usingDTable_internal_fast(
 
 HUF_DGEN(HUF_decompress1X1_usingDTable_internal)
 
+#if OPTIMIZE_LIT_HUF_DECODE
+
+// allowed range x = 1~((1<<64)-1)
+inline static int8_t trailbit_u64 (uint64_t val) {
+    return (int8_t)__builtin_ctzll(val);
+}
+
+// allowed range x = 1~511
+inline static int8_t highbit_u9 (uint16_t x) {
+    return 31 - __builtin_clz((uint32_t)x);
+}
+
+inline void MEM_COPY16B (uint8_t *p_dst, const uint8_t *p_src) {
+    vst1q_u8(p_dst, vld1q_u8(p_src));
+}
+
+inline static void HUF_decompress4X1_usingDTable_ver2 (U8 *dst, size_t dst_size, const U8 *src, size_t src_size, const HUF_DTable* huf_dtable) {
+    U8 backup [16];
+    MEM_COPY16B(backup, (dst+dst_size));      // 保存 (dst+dst_size) 开始的 16B，避免 wildcopy 的篡改
+
+    typedef struct { U8 n_bit; U8 symb; } HUF_item;
+
+    const HUF_item * dtable = (const HUF_item*)(huf_dtable + 1);
+    const U8 table_sft = (64 - HUF_getDTableDesc(huf_dtable).tableLog) & 0x3F;
+
+    #define HUF4X1_RELD(k)   { int8_t c=trailbit_u64(d[k]);  ip[k]-=(c>>3);  d[k]=(1|(*(U64*)ip[k]));  d[k]<<=(c&7); }
+    #define HUF4X1_DECJ(k,j) { HUF_item item=dtable[(d[k]>>table_sft)];  d[k]<<=item.n_bit;    op[k][j]=item.symb; }
+    #define HUF4X1_DECK(k)   { HUF_item item=dtable[(d[k]>>table_sft)];  d[k]<<=item.n_bit;  *(op[k]++)=item.symb; }
+
+    const U32 u = ((dst_size+3) >> 2);
+    const U32 y = u / 5;
+    const U32 z = u - y*5;
+    U8* op1 = (U8*)dst;
+    U8* op2 = op1 + u;
+    U8* op3 = op2 + u;
+    U8* op4 = op3 + u;
+    const U8 *ip1 = ((U8*)src) + 6 + ((const U16*)src)[0] - 8;
+    const U8 *ip2 = ip1            + ((const U16*)src)[1];
+    const U8 *ip3 = ip2            + ((const U16*)src)[2];
+    const U8 *ip4 = ((U8*)src) + src_size - 8;
+
+    const U8 * ip[] = {ip1, ip2, ip3, ip4};
+    U8       * op[] = {op1, op2, op3, op4};
+    U64        d[4];
+    
+    for (int k=0; k<4; k++) {
+        d[k]   = (1|(*(U64*)ip[k]));
+        d[k] <<= (8 - highbit_u9(ip[k][7]));
+    }
+    
+    for (U32 i=0; i<y; i++) {
+        HUF4X1_DECJ(0, 0);
+        HUF4X1_DECJ(1, 0);
+        HUF4X1_DECJ(2, 0);
+        HUF4X1_DECJ(3, 0);
+        HUF4X1_DECJ(0, 1);
+        HUF4X1_DECJ(1, 1);
+        HUF4X1_DECJ(2, 1);
+        HUF4X1_DECJ(3, 1);
+        HUF4X1_DECJ(0, 2);
+        HUF4X1_DECJ(1, 2);
+        HUF4X1_DECJ(2, 2);
+        HUF4X1_DECJ(3, 2);
+        HUF4X1_DECJ(0, 3);
+        HUF4X1_DECJ(1, 3);
+        HUF4X1_DECJ(2, 3);
+        HUF4X1_DECJ(3, 3);
+        HUF4X1_DECJ(0, 4);
+        HUF4X1_DECJ(1, 4);
+        HUF4X1_DECJ(2, 4);
+        HUF4X1_DECJ(3, 4);
+        op[0] += 5;
+        op[1] += 5;
+        op[2] += 5;
+        op[3] += 5;
+        HUF4X1_RELD(0);
+        HUF4X1_RELD(1);
+        HUF4X1_RELD(2);
+        HUF4X1_RELD(3);
+    }
+
+    for (U32 i=0; i<z; i++) {
+        HUF4X1_DECK(0);
+        HUF4X1_DECK(1);
+        HUF4X1_DECK(2);
+        HUF4X1_DECK(3);
+    }
+
+    MEM_COPY16B((dst+dst_size), backup);      // 恢复 (dst+dst_size) 开始的 16B，避免 wildcopy 的篡改
+}
+
+#endif
+
 static size_t HUF_decompress4X1_usingDTable_internal(void* dst, size_t dstSize, void const* cSrc,
                     size_t cSrcSize, HUF_DTable const* DTable, int flags)
 {
+#if OPTIMIZE_LIT_HUF_DECODE
+    {
+        (void)flags;
+        HUF_decompress4X1_usingDTable_ver2(dst, dstSize, cSrc, cSrcSize, DTable);
+        return dstSize;
+    }
+#endif
+
     HUF_DecompressUsingDTableFn fallbackFn = HUF_decompress4X1_usingDTable_internal_default;
     HUF_DecompressFastLoopFn loopFn = HUF_decompress4X1_usingDTable_internal_fast_c_loop;
 

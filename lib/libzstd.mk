@@ -142,12 +142,23 @@ ZSTD_LEGACY_FILES :=
 
 ZSTD_DECOMPRESS_AMD64_ASM_FILES := $(sort $(wildcard $(LIBZSTD)/decompress/*_amd64.S))
 
+ARCH := $(shell uname -m)
+ifeq ($(ARCH), aarch64)
+  CPU_PART := $(shell dmidecode -t processor | grep 'Signature' | head -n 1 | sed 's/,//g' | cut -d ' ' -f 9)
+  $(info CPU_PART: $(CPU_PART))
+  ifeq ($(CPU_PART), 0xd06)
+    ZSTD_DECOMPRESS_FILES := $(filter-out $(LIBZSTD)/decompress/zstd_decompress_block.c, $(ZSTD_DECOMPRESS_FILES))
+    ZSTD_DECOMPRESS_AMD64_ASM_FILES += $(sort $(wildcard $(LIBZSTD)/decompress/zstd_decompress_block_aarch64.S))
+  endif
+endif
+
 ifneq ($(ZSTD_NO_ASM), 0)
   CPPFLAGS += -DZSTD_DISABLE_ASM
 else
   # Unconditionally add the ASM files they are disabled by
   # macros in the .S file.
   ZSTD_DECOMPRESS_FILES += $(ZSTD_DECOMPRESS_AMD64_ASM_FILES)
+  $(info PATH: $(ZSTD_DECOMPRESS_FILES))
 endif
 
 ifneq ($(HUF_FORCE_DECOMPRESS_X1), 0)
