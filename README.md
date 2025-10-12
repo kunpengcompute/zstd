@@ -1,3 +1,4 @@
+# 通知: 本项目已经正式迁移至 [Gitcode](https://gitcode.com/BoostKit) 平台
 # 项目介绍
 
 存储算法加速库（简称KSAL）是华为自研的存储算法加速库，当前包括EC算法、CRC16 T10DIF算法、CRC32C算法、memcpy优化算法、DAS智能预取算法和Ceph百亿对象存储元数据zstd压缩算法。 关于KSAL的详细特性介绍可参考[存储加速算法库](https://gitee.com/link?target=https%3A%2F%2Fwww.hikunpeng.com%2Fdocument%2Fdetail%2Fzh%2Fkunpengsdss%2FbasicAccelFeatures%2Fksal%2Fkunpengksal_16_0001.html)，关于zstd算法的详细特性介绍可参考[Zstandard - Real-time data compression algorithm \(facebook.github.io\)](https://gitee.com/link?target=https%3A%2F%2Ffacebook.github.io%2Fzstd%2F)
