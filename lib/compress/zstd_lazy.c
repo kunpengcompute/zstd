@@ -317,9 +317,15 @@ ZSTD_DUBT_findBestMatch(ZSTD_matchState_t* ms,
 
             if ((dictMode != ZSTD_extDict) || (matchIndex+matchLength >= dictLimit)) {
                 match = base + matchIndex;
+		if (match >= ip) {
+		    continue;
+		}
                 matchLength += ZSTD_count(ip+matchLength, match+matchLength, iend);
             } else {
                 match = dictBase + matchIndex;
+		if (match >= ip) {
+                    continue;
+                }
                 matchLength += ZSTD_count_2segments(ip+matchLength, match+matchLength, iend, dictEnd, prefixStart);
                 if (matchIndex+matchLength >= dictLimit)
                     match = base + matchIndex;   /* to prepare for next usage of match[matchLength] */
@@ -693,12 +699,12 @@ size_t ZSTD_HcFindBestMatch(
             const BYTE* const match = base + matchIndex;
             assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
             /* read 4B starting from (match + ml + 1 - sizeof(U32)) */
-            if (MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
+            if ((match < ip) && MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
                 currentMl = ZSTD_count(ip, match, iLimit);
         } else {
             const BYTE* const match = dictBase + matchIndex;
             assert(match+4 <= dictEnd);
-            if (MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
+            if ((match < ip) && MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
                 currentMl = ZSTD_count_2segments(ip+4, match+4, iLimit, dictEnd, prefixStart) + 4;
         }
 
@@ -1245,12 +1251,12 @@ size_t ZSTD_RowFindBestMatch(
                 const BYTE* const match = base + matchIndex;
                 assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
                 /* read 4B starting from (match + ml + 1 - sizeof(U32)) */
-                if (MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
+                if ((match < ip) && MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
                     currentMl = ZSTD_count(ip, match, iLimit);
             } else {
                 const BYTE* const match = dictBase + matchIndex;
                 assert(match+4 <= dictEnd);
-                if (MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
+                if ((match < ip) && MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
                     currentMl = ZSTD_count_2segments(ip+4, match+4, iLimit, dictEnd, prefixStart) + 4;
             }
 
