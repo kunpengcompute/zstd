@@ -290,6 +290,8 @@ struct ZSTD_MatchState_t {
     U32* hashTable;
     U32* hashTable3;
     U32* chainTable;
+    void* WRC_matchfinder;
+    U32 searchStep;
 
     int forceNonContiguous; /* Non-zero if we should force non-contiguous load for the next window update. */
 
@@ -725,6 +727,11 @@ ZSTD_safecopyLiterals(BYTE* op, BYTE const* ip, BYTE const* const iend, BYTE con
 #define OFFBASE_TO_OFFSET(o)  (assert(OFFBASE_IS_OFFSET(o)), (o) - ZSTD_REP_NUM)
 #define OFFBASE_TO_REPCODE(o) (assert(OFFBASE_IS_REPCODE(o)), (o))  /* returns ID 1,2,3 */
 
+#define STORED_IS_OFFSET OFFBASE_IS_OFFSET
+#define STORE_OFFSET OFFSET_TO_OFFBASE
+#define STORED_OFFSET OFFBASE_TO_OFFSET
+#define STORED_TO_OFFBASE(o) ((o)+1)
+
 /*! ZSTD_storeSeqOnly() :
  *  Store a sequence (litlen, litPtr, offBase and matchLength) into SeqStore_t.
  *  Literals themselves are not copied, but @litPtr is updated.
@@ -896,35 +903,77 @@ ZSTD_count_2segments(const BYTE* ip, const BYTE* match,
  *  Hashes
  ***************************************/
 static const U32 prime3bytes = 506832829U;
+
+static size_t    ZSTD_hash3_opt(U32 u, U32 h) { assert(h <= 32); return (size_t) (((U64)(((u << (32-24)) * prime3bytes)  >> (32-h)) << 32) + (U32)((u << (32-24)) * prime3bytes)) ; }
+MEM_STATIC size_t ZSTD_hash3Ptr_opt(const void* ptr, U32 h) { return ZSTD_hash3_opt(MEM_readLE32(ptr), h); } /* only in zstd_opt.h */
+
 static U32    ZSTD_hash3(U32 u, U32 h, U32 s) { assert(h <= 32); return (((u << (32-24)) * prime3bytes) ^ s)  >> (32-h) ; }
 MEM_STATIC size_t ZSTD_hash3Ptr(const void* ptr, U32 h) { return ZSTD_hash3(MEM_readLE32(ptr), h, 0); } /* only in zstd_opt.h */
 MEM_STATIC size_t ZSTD_hash3PtrS(const void* ptr, U32 h, U32 s) { return ZSTD_hash3(MEM_readLE32(ptr), h, s); }
 
 static const U32 prime4bytes = 2654435761U;
+
+static size_t ZSTD_hash4_opt(U32 u, U32 h) { assert(h <= 32); return (size_t)((((U64)((u * prime4bytes) >> (32-h)) << 32)) + (U32)(u * prime4bytes)) ; }
+static size_t ZSTD_hash4Ptr_opt(const void* ptr, U32 h) { return ZSTD_hash4_opt(MEM_readLE32(ptr), h); }
+
 static U32    ZSTD_hash4(U32 u, U32 h, U32 s) { assert(h <= 32); return ((u * prime4bytes) ^ s) >> (32-h) ; }
 static size_t ZSTD_hash4Ptr(const void* ptr, U32 h) { return ZSTD_hash4(MEM_readLE32(ptr), h, 0); }
 static size_t ZSTD_hash4PtrS(const void* ptr, U32 h, U32 s) { return ZSTD_hash4(MEM_readLE32(ptr), h, s); }
 
 static const U64 prime5bytes = 889523592379ULL;
+
+static size_t ZSTD_hash5_opt(U64 u, U32 h) { assert(h <= 64); return (size_t)(((((u  << (64-40)) * prime5bytes) >> (64-h)) << 32) + (U32)((u  << (64-40)) * prime5bytes)) ; }
+static size_t ZSTD_hash5Ptr_opt(const void* p, U32 h) { return ZSTD_hash5_opt(MEM_readLE64(p), h); }
+
 static size_t ZSTD_hash5(U64 u, U32 h, U64 s) { assert(h <= 64); return (size_t)((((u  << (64-40)) * prime5bytes) ^ s) >> (64-h)) ; }
 static size_t ZSTD_hash5Ptr(const void* p, U32 h) { return ZSTD_hash5(MEM_readLE64(p), h, 0); }
 static size_t ZSTD_hash5PtrS(const void* p, U32 h, U64 s) { return ZSTD_hash5(MEM_readLE64(p), h, s); }
 
 static const U64 prime6bytes = 227718039650203ULL;
+
+static size_t ZSTD_hash6_opt(U64 u, U32 h) { assert(h <= 64); return (size_t)(((((u  << (64-48)) * prime6bytes) >> (64-h)) << 32) + (U32)((u  << (64-48)) * prime6bytes)) ; }
+static size_t ZSTD_hash6Ptr_opt(const void* p, U32 h) { return ZSTD_hash6_opt(MEM_readLE64(p), h); }
+
 static size_t ZSTD_hash6(U64 u, U32 h, U64 s) { assert(h <= 64); return (size_t)((((u  << (64-48)) * prime6bytes) ^ s) >> (64-h)) ; }
 static size_t ZSTD_hash6Ptr(const void* p, U32 h) { return ZSTD_hash6(MEM_readLE64(p), h, 0); }
 static size_t ZSTD_hash6PtrS(const void* p, U32 h, U64 s) { return ZSTD_hash6(MEM_readLE64(p), h, s); }
 
 static const U64 prime7bytes = 58295818150454627ULL;
+
+static size_t ZSTD_hash7_opt(U64 u, U32 h) { assert(h <= 64); return (size_t)(((((u  << (64-56)) * prime7bytes) >> (64-h)) << 32) + (U32)((u  << (64-56)) * prime7bytes)) ; }
+static size_t ZSTD_hash7Ptr_opt(const void* p, U32 h) { return ZSTD_hash7_opt(MEM_readLE64(p), h); }
+
 static size_t ZSTD_hash7(U64 u, U32 h, U64 s) { assert(h <= 64); return (size_t)((((u  << (64-56)) * prime7bytes) ^ s) >> (64-h)) ; }
 static size_t ZSTD_hash7Ptr(const void* p, U32 h) { return ZSTD_hash7(MEM_readLE64(p), h, 0); }
 static size_t ZSTD_hash7PtrS(const void* p, U32 h, U64 s) { return ZSTD_hash7(MEM_readLE64(p), h, s); }
 
 static const U64 prime8bytes = 0xCF1BBCDCB7A56463ULL;
+
+static size_t ZSTD_hash8_opt(U64 u, U32 h) { assert(h <= 64); return (size_t)(((((u) * prime8bytes) >> (64-h)) << 32) + (U32)((u) * prime8bytes)) ; }
+static size_t ZSTD_hash8Ptr_opt(const void* p, U32 h) { return ZSTD_hash8_opt(MEM_readLE64(p), h); }
+
 static size_t ZSTD_hash8(U64 u, U32 h, U64 s) { assert(h <= 64); return (size_t)((((u) * prime8bytes)  ^ s) >> (64-h)) ; }
 static size_t ZSTD_hash8Ptr(const void* p, U32 h) { return ZSTD_hash8(MEM_readLE64(p), h, 0); }
 static size_t ZSTD_hash8PtrS(const void* p, U32 h, U64 s) { return ZSTD_hash8(MEM_readLE64(p), h, s); }
 
+MEM_STATIC FORCE_INLINE_ATTR
+size_t ZSTD_hashPtr_opt(const void* p, U32 hBits, U32 mls)
+{
+    /* Although some of these hashes do support hBits up to 64, some do not.
+     * To be on the safe side, always avoid hBits > 32. */
+    assert(hBits <= 32);
+ 
+    switch(mls)
+    {
+    default:
+    case 3: return ZSTD_hash3Ptr_opt(p, hBits);
+    case 4: return ZSTD_hash4Ptr_opt(p, hBits);
+    case 5: return ZSTD_hash5Ptr_opt(p, hBits);
+    case 6: return ZSTD_hash6Ptr_opt(p, hBits);
+    case 7: return ZSTD_hash7Ptr_opt(p, hBits);
+    case 8: return ZSTD_hash8Ptr_opt(p, hBits);
+    }
+}
 
 MEM_STATIC FORCE_INLINE_ATTR
 size_t ZSTD_hashPtr(const void* p, U32 hBits, U32 mls)
