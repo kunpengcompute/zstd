@@ -210,10 +210,10 @@ _start: /* Requires: ip0 */
         goto _cleanup;
     }
 
-    hash0 = ZSTD_hashPtr(ip0, hlog, mls);
-    hash1 = ZSTD_hashPtr(ip1, hlog, mls);
+    hash0 = ZSTD_hashPtr_opt(ip0, hlog, mls);
+    hash1 = ZSTD_hashPtr_opt(ip1, hlog, mls);
 
-    idx = hashTable[hash0];
+    idx = hashTable[hash0 >> 32] - (U32)hash0;
 
     do {
         /* load repcode match for ip[2]*/
@@ -221,7 +221,7 @@ _start: /* Requires: ip0 */
 
         /* write back hash table entry */
         current0 = (U32)(ip0 - base);
-        hashTable[hash0] = current0;
+        hashTable[hash0 >> 32] = current0 + (U32)hash0;
 
         /* check repcode at ip[2] */
         if ((MEM_read32(ip2) == rval) & (rep_offset1 > 0)) {
@@ -236,36 +236,36 @@ _start: /* Requires: ip0 */
             /* First write next hash table entry; we've already calculated it.
              * This write is known to be safe because the ip1 is before the
              * repcode (ip2). */
-            hashTable[hash1] = (U32)(ip1 - base);
+            hashTable[hash1 >> 32] = (U32)(ip1 - base) + (U32)hash1;
 
             goto _match;
         }
 
         /* load match for ip[0] */
-        if (idx >= prefixStartIndex) {
+        if (idx >= prefixStartIndex && idx < endIndex) {
             mval = MEM_read32(base + idx);
         } else {
             mval = MEM_read32(ip0) ^ 1; /* guaranteed to not match. */
         }
 
         /* check match at ip[0] */
-        if (MEM_read32(ip0) == mval) {
+        if (MEM_read32(ip0) == mval && (base + idx) < ip0) {
             /* found a match! */
 
             /* First write next hash table entry; we've already calculated it.
              * This write is known to be safe because the ip1 == ip0 + 1, so
              * we know we will resume searching after ip1 */
-            hashTable[hash1] = (U32)(ip1 - base);
+            hashTable[hash1 >> 32] = (U32)(ip1 - base) + (U32)hash1;
 
             goto _offset;
         }
 
         /* lookup ip[1] */
-        idx = hashTable[hash1];
+        idx = hashTable[hash1 >> 32] - (U32)hash1;
 
         /* hash ip[2] */
         hash0 = hash1;
-        hash1 = ZSTD_hashPtr(ip2, hlog, mls);
+        hash1 = ZSTD_hashPtr_opt(ip2, hlog, mls);
 
         /* advance to next positions */
         ip0 = ip1;
@@ -274,17 +274,17 @@ _start: /* Requires: ip0 */
 
         /* write back hash table entry */
         current0 = (U32)(ip0 - base);
-        hashTable[hash0] = current0;
+        hashTable[hash0 >> 32] = current0 + (U32)hash0;
 
         /* load match for ip[0] */
-        if (idx >= prefixStartIndex) {
+        if (idx >= prefixStartIndex && idx < endIndex) {
             mval = MEM_read32(base + idx);
         } else {
             mval = MEM_read32(ip0) ^ 1; /* guaranteed to not match. */
         }
 
         /* check match at ip[0] */
-        if (MEM_read32(ip0) == mval) {
+        if (MEM_read32(ip0) == mval && (base + idx) < ip0) {
             /* found a match! */
 
             /* first write next hash table entry; we've already calculated it */
@@ -298,18 +298,18 @@ _start: /* Requires: ip0 */
                  * ip1 is ip0 + step - 1. If ip1 is >= ip0 + 4, we can't safely
                  * write this position.
                  */
-                hashTable[hash1] = (U32)(ip1 - base);
+                hashTable[hash1 >> 32] = (U32)(ip1 - base) + (U32)hash1;
             }
 
             goto _offset;
         }
 
         /* lookup ip[1] */
-        idx = hashTable[hash1];
+        idx = hashTable[hash1 >> 32] - (U32)hash1 ;
 
         /* hash ip[2] */
         hash0 = hash1;
-        hash1 = ZSTD_hashPtr(ip2, hlog, mls);
+        hash1 = ZSTD_hashPtr_opt(ip2, hlog, mls);
 
         /* advance to next positions */
         ip0 = ip1;
@@ -357,17 +357,21 @@ _offset: /* Requires: ip0, idx */
 
     /* Compute the offset code. */
     match0 = base + idx;
+    
     rep_offset2 = rep_offset1;
     rep_offset1 = (U32)(ip0-match0);
     offcode = OFFSET_TO_OFFBASE(rep_offset1);
     mLength = 4;
-
     /* Count the backwards match length. */
     while (((ip0>anchor) & (match0>prefixStart)) && (ip0[-1] == match0[-1])) {
         ip0--;
         match0--;
         mLength++;
     }
+    
+    
+    
+    
 
 _match: /* Requires: ip0, match0, offcode */
 
@@ -383,15 +387,15 @@ _match: /* Requires: ip0, match0, offcode */
     if (ip0 <= ilimit) {
         /* Fill Table */
         assert(base+current0+2 > istart);  /* check base overflow */
-        hashTable[ZSTD_hashPtr(base+current0+2, hlog, mls)] = current0+2;  /* here because current+2 could be > iend-8 */
-        hashTable[ZSTD_hashPtr(ip0-2, hlog, mls)] = (U32)(ip0-2-base);
+        hashTable[ZSTD_hashPtr_opt(base+current0+2, hlog, mls) >> 32] = current0+2+(U32)ZSTD_hashPtr_opt(base+current0+2, hlog, mls);  /* here because current+2 could be > iend-8 */
+        hashTable[ZSTD_hashPtr_opt(ip0-2, hlog, mls) >> 32] = (U32)(ip0-2-base)+(U32)ZSTD_hashPtr_opt(ip0-2, hlog, mls);
 
         if (rep_offset2 > 0) { /* rep_offset2==0 means rep_offset2 is invalidated */
             while ( (ip0 <= ilimit) && (MEM_read32(ip0) == MEM_read32(ip0 - rep_offset2)) ) {
                 /* store sequence */
                 size_t const rLength = ZSTD_count(ip0+4, ip0+4-rep_offset2, iend) + 4;
                 { U32 const tmpOff = rep_offset2; rep_offset2 = rep_offset1; rep_offset1 = tmpOff; } /* swap rep_offset2 <=> rep_offset1 */
-                hashTable[ZSTD_hashPtr(ip0, hlog, mls)] = (U32)(ip0-base);
+                hashTable[ZSTD_hashPtr_opt(ip0, hlog, mls) >> 32] = (U32)(ip0-base) + (U32)ZSTD_hashPtr_opt(ip0, hlog, mls);
                 ip0 += rLength;
                 ZSTD_storeSeq(seqStore, 0 /*litLen*/, anchor, iend, REPCODE1_TO_OFFBASE, rLength);
                 anchor = ip0;
@@ -795,7 +799,7 @@ _start: /* Requires: ip0 */
         }   }
 
         {   /* load match for ip[0] */
-            U32 const mval = idx >= dictStartIndex ?
+            U32 const mval = idx >= dictStartIndex && (idxBase + idx < ip0) ?
                     MEM_read32(idxBase + idx) :
                     MEM_read32(ip0) ^ 1; /* guaranteed not to match */
 
@@ -823,7 +827,7 @@ _start: /* Requires: ip0 */
         hashTable[hash0] = current0;
 
         {   /* load match for ip[0] */
-            U32 const mval = idx >= dictStartIndex ?
+            U32 const mval = idx >= dictStartIndex && (idxBase + idx < ip0) ?
                     MEM_read32(idxBase + idx) :
                     MEM_read32(ip0) ^ 1; /* guaranteed not to match */
 
@@ -875,6 +879,7 @@ _cleanup:
 _offset: /* Requires: ip0, idx, idxBase */
 
     /* Compute the offset code. */
+    
     {   U32 const offset = current0 - idx;
         const BYTE* const lowMatchPtr = idx < prefixStartIndex ? dictStart : prefixStart;
         matchEnd = idx < prefixStartIndex ? dictEnd : iend;
