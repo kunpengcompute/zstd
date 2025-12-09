@@ -115,7 +115,7 @@ DEBUGFLAGS= -Wall -Wextra -Wcast-qual -Wcast-align -Wshadow \
             -Wstrict-prototypes -Wundef -Wpointer-arith \
             -Wvla -Wformat=2 -Winit-self -Wfloat-equal -Wwrite-strings \
             -Wredundant-decls -Wmissing-prototypes -Wc++-compat
-CFLAGS   += $(DEBUGFLAGS) $(MOREFLAGS)
+CFLAGS   += $(DEBUGFLAGS) $(MOREFLAGS) -g
 ASFLAGS  += $(DEBUGFLAGS) $(MOREFLAGS) $(CFLAGS)
 LDFLAGS  += $(MOREFLAGS)
 FLAGS     = $(CPPFLAGS) $(CFLAGS) $(ASFLAGS) $(LDFLAGS)
@@ -134,6 +134,8 @@ CFLAGS  += -Qunused-arguments -Wa,--noexecstack
 # CFLAGS are also added to ASFLAGS
 endif
 endif
+
+CFLAGS  += -g
 
 ifeq ($(shell echo "int main(int argc, char* argv[]) { (void)argc; (void)argv; return 0; }" | $(CC) $(FLAGS) -z cet-report=error -x c -Werror - -o $(VOID) 2>$(VOID) && echo 1 || echo 0),1)
 LDFLAGS += -z cet-report=error

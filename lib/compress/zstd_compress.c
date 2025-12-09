@@ -30,6 +30,8 @@
 #include "zstd_compress_superblock.h"
 #include  "../common/bits.h"      /* ZSTD_highbit32, ZSTD_rotateRight_U64 */
 
+#define COMPRESS_WRC
+
 /* ***************************************************************
 *  Tuning parameters
 *****************************************************************/
@@ -172,6 +174,12 @@ static void ZSTD_freeCCtxContent(ZSTD_CCtx* cctx)
     assert(cctx != NULL);
     assert(cctx->staticSize == 0);
     ZSTD_clearAllDicts(cctx);
+#ifdef COMPRESS_WRC
+    if(cctx->blockState.matchState.WRC_matchfinder != NULL) { // clear WRC_matchfinder
+        free(cctx->blockState.matchState.WRC_matchfinder);
+        cctx->blockState.matchState.WRC_matchfinder = 0;
+    }
+#endif
 #ifdef ZSTD_MULTITHREAD
     ZSTDMT_freeCCtx(cctx->mtctx); cctx->mtctx = NULL;
 #endif
@@ -182,6 +190,12 @@ size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx)
 {
     DEBUGLOG(3, "ZSTD_freeCCtx (address: %p)", (void*)cctx);
     if (cctx==NULL) return 0;   /* support free on NULL */
+#ifdef COMPRESS_WRC
+    if(cctx->blockState.matchState.WRC_matchfinder != NULL) { // clear WRC_matchfinder
+        free(cctx->blockState.matchState.WRC_matchfinder);
+        cctx->blockState.matchState.WRC_matchfinder = 0;
+    }
+#endif
     RETURN_ERROR_IF(cctx->staticSize, memory_allocation,
                     "not compatible with static CCtx");
     {   int cctxInWorkspace = ZSTD_cwksp_owns_buffer(&cctx->workspace, cctx);
@@ -3261,6 +3275,7 @@ ZSTD_transferSequences_wBlockDelim(ZSTD_CCtx* cctx,
 
 typedef enum { ZSTDbss_compress, ZSTDbss_noCompress } ZSTD_BuildSeqStore_e;
 
+
 static size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
 {
     ZSTD_MatchState_t* const ms = &zc->blockState.matchState;
@@ -3412,10 +3427,22 @@ static size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
                     lastLLSize = blockCompressor(ms, &zc->seqStore, zc->blockState.nextCBlock->rep, src, srcSize);
             }   }
         } else {   /* not long range mode and no external matchfinder */
-            ZSTD_BlockCompressor_f const blockCompressor = ZSTD_selectBlockCompressor(
-                    zc->appliedParams.cParams.strategy,
-                    zc->appliedParams.useRowMatchFinder,
-                    dictMode);
+            ZSTD_BlockCompressor_f blockCompressor;
+            blockCompressor = ZSTD_selectBlockCompressor(zc->appliedParams.cParams.strategy,
+                                                        zc->appliedParams.useRowMatchFinder,
+                                                        dictMode);
+#ifdef COMPRESS_WRC
+            if((zc->appliedParams.compressionLevel == 4 && (srcSize <= 16 * 1024)) || (zc->appliedParams.compressionLevel == 5 && (srcSize <= 16 * 1024))) {
+                blockCompressor = ZSTD_compressBlock_WRC;
+                
+                ms->searchStep = 1;
+                if (zc->appliedParams.compressionLevel == 5) {
+                    if (srcSize >= 16 * 1024) {
+                        ms->searchStep = 2;
+                    }
+                }
+            }
+#endif
             ms->ldmSeqStore = NULL;
             lastLLSize = blockCompressor(ms, &zc->seqStore, zc->blockState.nextCBlock->rep, src, srcSize);
         }
