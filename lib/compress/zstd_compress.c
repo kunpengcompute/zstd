@@ -30,7 +30,7 @@
 #include "zstd_compress_superblock.h"
 #include  "../common/bits.h"      /* ZSTD_highbit32, ZSTD_rotateRight_U64 */
 
-#define COMPRESS_WRC
+#define COMPRESS_GREEDY
 
 /* ***************************************************************
 *  Tuning parameters
@@ -174,10 +174,10 @@ static void ZSTD_freeCCtxContent(ZSTD_CCtx* cctx)
     assert(cctx != NULL);
     assert(cctx->staticSize == 0);
     ZSTD_clearAllDicts(cctx);
-#ifdef COMPRESS_WRC
-    if(cctx->blockState.matchState.WRC_matchfinder != NULL) { // clear WRC_matchfinder
-        free(cctx->blockState.matchState.WRC_matchfinder);
-        cctx->blockState.matchState.WRC_matchfinder = 0;
+#ifdef COMPRESS_GREEDY
+    if(cctx->blockState.matchState.GREEDY_matchfinder != NULL) { // clear GREEDY_matchfinder
+        free(cctx->blockState.matchState.GREEDY_matchfinder);
+        cctx->blockState.matchState.GREEDY_matchfinder = 0;
     }
 #endif
 #ifdef ZSTD_MULTITHREAD
@@ -190,10 +190,10 @@ size_t ZSTD_freeCCtx(ZSTD_CCtx* cctx)
 {
     DEBUGLOG(3, "ZSTD_freeCCtx (address: %p)", (void*)cctx);
     if (cctx==NULL) return 0;   /* support free on NULL */
-#ifdef COMPRESS_WRC
-    if(cctx->blockState.matchState.WRC_matchfinder != NULL) { // clear WRC_matchfinder
-        free(cctx->blockState.matchState.WRC_matchfinder);
-        cctx->blockState.matchState.WRC_matchfinder = 0;
+#ifdef COMPRESS_GREEDY
+    if(cctx->blockState.matchState.GREEDY_matchfinder != NULL) { // clear GREEDY_matchfinder
+        free(cctx->blockState.matchState.GREEDY_matchfinder);
+        cctx->blockState.matchState.GREEDY_matchfinder = 0;
     }
 #endif
     RETURN_ERROR_IF(cctx->staticSize, memory_allocation,
@@ -3431,9 +3431,9 @@ static size_t ZSTD_buildSeqStore(ZSTD_CCtx* zc, const void* src, size_t srcSize)
             blockCompressor = ZSTD_selectBlockCompressor(zc->appliedParams.cParams.strategy,
                                                         zc->appliedParams.useRowMatchFinder,
                                                         dictMode);
-#ifdef COMPRESS_WRC
-            if((zc->appliedParams.compressionLevel == 4 && (srcSize <= 16 * 1024)) || (zc->appliedParams.compressionLevel == 5 && (srcSize <= 16 * 1024))) {
-                blockCompressor = ZSTD_compressBlock_WRC;
+#ifdef COMPRESS_GREEDY
+            if((zc->appliedParams.compressionLevel == 4 && (srcSize <= 16 * 1024)) || (zc->appliedParams.compressionLevel == 5 && (srcSize <= 32 * 1024))) {
+                blockCompressor = ZSTD_compressBlock_GREEDY;
                 
                 ms->searchStep = 1;
                 if (zc->appliedParams.compressionLevel == 5) {

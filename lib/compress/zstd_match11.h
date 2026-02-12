@@ -3,7 +3,7 @@
 #include "zstd_compress_internal.h"
  
 /* *********************************
- *  WRC Hash Chain
+ *  GREEDY Hash Chain
  ***********************************/
 typedef unsigned short u16;
 typedef unsigned int u32;
@@ -47,51 +47,42 @@ inline uint8_t small_h(uint8_t c)
     return mod15(c);
 }
  
-#define PRF (112 + 8)
-static forceinline void WRC_HcMatchfinderSkipBytes(struct hc_matchfinder *const restrict mf,
+#define PRF (8)
+static forceinline void GREEDY_HcMatchfinderSkipBytes(struct hc_matchfinder *const restrict mf,
                                                    const u8 *const restrict in_base, const u8 *restrict in_next,
                                                    int count)
 {
     uint32_t h4[PRF];
     uint32_t b4[PRF];
  
-#define go(i)                                                                                          \
+#define build_chain(i)                                                                                 \
     h4[i] = (MEM_read64(in_next + i) * 0xB7A56463ADA1F189) >> (BASE * 8 - HC_MATCHFINDER_HASH4_ORDER); \
     h4[i] &= (1 << HC_MATCHFINDER_HASH4_ORDER) - 1;                                                    \
-    b4[i] = (((uint32_t)(cur_pos + i)) << BITS_H) | (1 << small_h(*(in_next + i + BASE)));                         \
-    __builtin_prefetch(mf->hash4_tab + h4[i], 1, 3);
- 
-#define go2(i)                                         \
-    mf->next4_tab[cur_pos + i] = mf->hash4_tab[h4[i]]; \
+    b4[i] = (((uint32_t)(cur_pos + i)) << BITS_H) | (1 << small_h(*(in_next + i + BASE)));             \
+    __builtin_prefetch(mf->hash4_tab + h4[i], 1, 3);                                                   \
+    mf->next4_tab[cur_pos + i] = mf->hash4_tab[h4[i]];                                                 \
     mf->hash4_tab[h4[i]] = (mf->hash4_tab[h4[i]] & 0x1FFF) | b4[i];
- 
+
     int cur_pos = 0;
     for (; cur_pos + PRF - 1 < count; cur_pos += PRF) {
-        for (int i = 0; i < PRF; i += 8) {
-            go(i) go(i + 1) go(i + 2) go(i + 3) go(i + 4) go(i + 5) go(i + 6) go(i + 7)
-        }
- 
-        for (int i = 0; i < PRF; i += 8) {
-            go2(i) go2(i + 1) go2(i + 2) go2(i + 3) go2(i + 4) go2(i + 5) go2(i + 6) go2(i + 7)
-        }
- 
+        build_chain(0) build_chain(1) build_chain(2) build_chain(3) \
+        build_chain(4) build_chain(5) build_chain(6) build_chain(7)
         in_next += PRF;
     }
     for (; cur_pos + BASE < count; cur_pos++) {
-        go(0);
-        go2(0);
+        build_chain(0);
         in_next++;
     }
 }
  
-static __attribute__((always_inline, hot)) void WRC_HcNewWindow(struct hc_matchfinder *const restrict mf, const u8 *base, u32 count)
+static __attribute__((always_inline, hot)) void GREEDY_HcNewWindow(struct hc_matchfinder *const restrict mf, const u8 *base, u32 count)
 {
     mf->start = base;
     memset(mf->hash4_tab, 0, sizeof(mf->hash4_tab));
-    WRC_HcMatchfinderSkipBytes(mf, base, base, count);
+    GREEDY_HcMatchfinderSkipBytes(mf, base, base, count);
 }
  
-static __attribute__((always_inline, hot)) u32 WRC_HcMatchfinderLongestMatch(struct hc_matchfinder *const restrict mf,
+static __attribute__((always_inline, hot)) u32 GREEDY_HcMatchfinderLongestMatch(struct hc_matchfinder *const restrict mf,
                                                                              const u8 *const restrict in_base,
                                                                              u8 *const restrict in_next, u32 best_len,
                                                                              size_t *const restrict offset_ret,
@@ -178,16 +169,16 @@ out:
     return best_len;
 }
  
-static __attribute__((always_inline, hot)) size_t ZSTD_WRC_HcFindBestMatch(struct hc_matchfinder *const restrict mf, const BYTE *ip,
+static __attribute__((always_inline, hot)) size_t ZSTD_GREEDY_HcFindBestMatch(struct hc_matchfinder *const restrict mf, const BYTE *ip,
                                                                            const BYTE *const iLimit, size_t *offsetPtr,
                                                                            u32 bestLen)
 {
-    return WRC_HcMatchfinderLongestMatch(mf, mf->start, ip, bestLen < BASE ? (BASE - 1) : bestLen, offsetPtr, iLimit);
+    return GREEDY_HcMatchfinderLongestMatch(mf, mf->start, ip, bestLen < BASE ? (BASE - 1) : bestLen, offsetPtr, iLimit);
 }
  
-static __attribute__((always_inline, hot)) size_t ZSTD_WRC_HcFindBestMatchLazy(struct hc_matchfinder *const restrict mf, const BYTE *ip,
+static __attribute__((always_inline, hot)) size_t ZSTD_GREEDY_HcFindBestMatchLazy(struct hc_matchfinder *const restrict mf, const BYTE *ip,
                                                                                const BYTE *const iLimit,
                                                                                size_t *offsetPtr, u32 bestLen)
 {
-    return WRC_HcMatchfinderLongestMatch(mf, mf->start, ip, bestLen < BASE ? (BASE - 1) : bestLen, offsetPtr, iLimit);
+    return GREEDY_HcMatchfinderLongestMatch(mf, mf->start, ip, bestLen < BASE ? (BASE - 1) : bestLen, offsetPtr, iLimit);
 }
