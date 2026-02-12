@@ -157,6 +157,9 @@ ZSTD_LEGACY_FILES :=
 
 ZSTD_DECOMPRESS_AMD64_ASM_FILES := $(sort $(wildcard $(LIB_SRCDIR)/decompress/*_amd64.S))
 
+ZSTD_COMPRESS_AMD64_ASM_FILES = $(sort $(wildcard $(LIB_SRCDIR)/compress/zstd_lazy_aarch64.S))
+ZSTD_COMPRESS_FILES += $(ZSTD_COMPRESS_AMD64_ASM_FILES)
+
 ifneq ($(ZSTD_NO_ASM), 0)
   CPPFLAGS += -DZSTD_DISABLE_ASM
 else

@@ -290,7 +290,7 @@ struct ZSTD_MatchState_t {
     U32* hashTable;
     U32* hashTable3;
     U32* chainTable;
-    void* WRC_matchfinder;
+    void* GREEDY_matchfinder;
     U32 searchStep;
 
     int forceNonContiguous; /* Non-zero if we should force non-contiguous load for the next window update. */
@@ -640,6 +640,17 @@ ZSTD_selectAddr(U32 index, U32 lowLimit, const BYTE* candidate, const BYTE* back
         : "r"(index), "r"(lowLimit), "r"(backup)
         );
     return candidate;
+#elif defined(__GNUC__) && defined(__aarch64__)
+    __asm__ (
+            "cmp     %w1, %w2\n"                
+            "csel    %0, %0, %3, hs\n"       
+            : "+r"(candidate)                      
+            : "r"(index),                       
+            "r"(lowLimit),                  
+            "r"(backup)                       
+            : "cc"                             
+            );
+    return candidate;
 #else
     return index >= lowLimit ? candidate : backup;
 #endif
@@ -913,7 +924,7 @@ MEM_STATIC size_t ZSTD_hash3PtrS(const void* ptr, U32 h, U32 s) { return ZSTD_ha
 
 static const U32 prime4bytes = 2654435761U;
 
-static size_t ZSTD_hash4_opt(U32 u, U32 h) { assert(h <= 32); return (size_t)((((U64)((u * prime4bytes) >> (32-h)) << 32)) + (U32)(u * prime4bytes)) ; }
+static size_t ZSTD_hash4_opt(U32 u, U32 h) { assert(h <= 32); return (size_t)((((U64)((u * prime3bytes) >> (32-h)) << 32)) + (U32)(u * prime3bytes)) ; }
 static size_t ZSTD_hash4Ptr_opt(const void* ptr, U32 h) { return ZSTD_hash4_opt(MEM_readLE32(ptr), h); }
 
 static U32    ZSTD_hash4(U32 u, U32 h, U32 s) { assert(h <= 32); return ((u * prime4bytes) ^ s) >> (32-h) ; }
@@ -974,6 +985,7 @@ size_t ZSTD_hashPtr_opt(const void* p, U32 hBits, U32 mls)
     case 8: return ZSTD_hash8Ptr_opt(p, hBits);
     }
 }
+
 
 MEM_STATIC FORCE_INLINE_ATTR
 size_t ZSTD_hashPtr(const void* p, U32 hBits, U32 mls)

@@ -12,6 +12,8 @@
 #include "zstd_lazy.h"
 #include "../common/bits.h" /* ZSTD_countTrailingZeros64 */
 
+#include <stdio.h>
+
 #if !defined(ZSTD_EXCLUDE_GREEDY_BLOCK_COMPRESSOR) \
  || !defined(ZSTD_EXCLUDE_LAZY_BLOCK_COMPRESSOR) \
  || !defined(ZSTD_EXCLUDE_LAZY2_BLOCK_COMPRESSOR) \
@@ -328,9 +330,15 @@ size_t ZSTD_DUBT_findBestMatch(ZSTD_MatchState_t* ms,
 
             if ((dictMode != ZSTD_extDict) || (matchIndex+matchLength >= dictLimit)) {
                 match = base + matchIndex;
+                if (match >= ip) {
+                    continue;
+                }
                 matchLength += ZSTD_count(ip+matchLength, match+matchLength, iend);
             } else {
                 match = dictBase + matchIndex;
+                if (match >= ip) {
+                    continue;
+                }
                 matchLength += ZSTD_count_2segments(ip+matchLength, match+matchLength, iend, dictEnd, prefixStart);
                 if (matchIndex+matchLength >= dictLimit)
                     match = base + matchIndex;   /* to prepare for next usage of match[matchLength] */
@@ -711,12 +719,12 @@ size_t ZSTD_HcFindBestMatch(
             const BYTE* const match = base + matchIndex;
             assert(matchIndex >= dictLimit);   /* ensures this is true if dictMode != ZSTD_extDict */
             /* read 4B starting from (match + ml + 1 - sizeof(U32)) */
-            if ((match < ip) && MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
+            if (MEM_read32(match + ml - 3) == MEM_read32(ip + ml - 3))   /* potentially better */
                 currentMl = ZSTD_count(ip, match, iLimit);
         } else {
             const BYTE* const match = dictBase + matchIndex;
             assert(match+4 <= dictEnd);
-            if ((match < ip) && MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
+            if (MEM_read32(match) == MEM_read32(ip))   /* assumption : matchIndex <= dictLimit-4 (by table construction) */
                 currentMl = ZSTD_count_2segments(ip+4, match+4, iLimit, dictEnd, prefixStart) + 4;
         }
 
@@ -1512,144 +1520,7 @@ FORCE_INLINE_TEMPLATE size_t ZSTD_searchMax(
 *********************************/
 
 #include "zstd_match11.h"
- 
-size_t ZSTD_compressBlock_WRC(ZSTD_MatchState_t *ms, SeqStore_t *seqStore,
-                                                             U32 rep[ZSTD_REP_NUM], const void *src, size_t srcSize)
-{
-    if((BYTE*)src  - (ms->window.base + ms->window.dictLimit) != 0 /*|| dictMode != 0 */) {
-        DEBUGLOG(5, "WARNING: We don't use previous block nor dict");
-    }
-    if(srcSize > 128 * 1024) {
-        // puts("data too big");
-        exit(0);
-    }
- 
-    if(ms->WRC_matchfinder == NULL) {
-        ms->WRC_matchfinder = malloc(sizeof(struct hc_matchfinder));
-        // ms->WRC_matchfinder = ms->hashTable;
-    }
-    struct hc_matchfinder* WRC_mf = (struct hc_matchfinder*)ms->WRC_matchfinder;
- 
-    WRC_HcNewWindow(WRC_mf, src, srcSize);
- 
-    const BYTE *const istart = (const BYTE *)src;
-    const BYTE *ip = istart;
-    const BYTE *anchor = istart;
-    const BYTE *const iend = istart + srcSize;
-    const BYTE *const ilimit = iend - 8;
- 
-    U32 offset_1 = rep[0], offset_2 = rep[1];
-    U32 offsetSaved1 = 0, offsetSaved2 = 0;
- 
-    ip += 1; // dict or previous block not supported
- 
-    const BYTE *const base = ms->window.base;
-    U32 const curr = (U32)(ip - base);
-    U32 const windowLow = ZSTD_getLowestPrefixIndex(ms, curr, ms->cParams.windowLog);
-    U32 const maxRep = curr - windowLow;
- 
-    if (offset_2 > maxRep)
-        offsetSaved1 = offset_2, offset_2 = 0;
-    if (offset_1 > maxRep)
-        offsetSaved2 = offset_1, offset_1 = 0;
- 
-    offset_1 = offset_2 = 0;
- 
-    while (ip < ilimit) {
-        size_t matchLength = 1;
-        size_t offcode = REPCODE1_TO_OFFBASE;
-        const BYTE *start = ip + 1;
- 
-        if (((offset_1 > 0) & (MEM_read32(ip + 1 - offset_1) == MEM_read32(ip + 1)))) {
-            matchLength = ZSTD_count(ip + 1 + 4, ip + 1 + 4 - offset_1, iend) + 4;
-            if (matchLength > 10)
-                goto use;
-        }
- 
-        {
-            size_t offsetFound = 999999999;
-            size_t const ml2 = ZSTD_WRC_HcFindBestMatch(WRC_mf, ip, iend, &offsetFound, (int)matchLength - 1);
-            if (ml2 > matchLength)
-                matchLength = ml2, start = ip, offcode = offsetFound;
-        }
- 
-        if (matchLength < 4) {
-            int skip = ((ip - anchor) >> (kSearchStrength - 3)) + ms->searchStep; /* jump faster over incompressible sections */
-            ip += skip;
-            continue;
-        }
- 
-        while (ip < ilimit) {
-            ip++;
-            size_t offset2 = 999999999;
- 
-            if ((offcode) && ((offset_1 > 0) & (MEM_read32(ip) == MEM_read32(ip - offset_1)))) {
-                int const mlRep = ZSTD_count(ip + 4, ip + 4 - offset_1, iend) + 4;
-                int const gain2 = (int)(mlRep * 3);
-                int const gain1 = (int)(matchLength * 3 - ZSTD_highbit32((U32)STORED_TO_OFFBASE(offcode)) + 1);
-                if ((mlRep >= 4) && (gain2 > gain1)) {
-                    matchLength = mlRep, offcode = REPCODE1_TO_OFFBASE, start = ip;
-                }
-            }
-            {
-                int const ml2 = ZSTD_WRC_HcFindBestMatchLazy(WRC_mf, ip, iend, &offset2, (int)matchLength);
- 
-                int const gain2 =
-                    (int)(ml2 * 5 - ZSTD_highbit32((U32)STORED_TO_OFFBASE(offset2))); /* raw approx */
-                int const gain1 = (int)(matchLength * 5 - ZSTD_highbit32((U32)STORED_TO_OFFBASE(offcode)) + 1);
-                if ((ml2 >= 4) && (gain2 > gain1)) {
-                    matchLength = ml2, offcode = offset2, start = ip;
-                    continue; /* search a better one */
-                }
-            }
- 
-            break; /* nothing found : store previous solution */
-        }
-    use:
-        /* NOTE:
-         * Pay attention that `start[-value]` can lead to strange undefined behavior
-         * notably if `value` is unsigned, resulting in a large positive `-value`.
-         */
-        /* catch up */
-        if (STORED_IS_OFFSET(offcode)) {
-            while (((start > anchor) & (start - STORED_OFFSET(offcode) > istart)) &&
-                   (start[-1] == (start - STORED_OFFSET(offcode))[-1])) /* only search for offset within prefix */
-            {
-                start--;
-                matchLength++;
-            }
-            offset_2 = offset_1;
-            offset_1 = (U32)STORED_OFFSET(offcode);
-        }
- 
-        /* store sequence */
-        size_t const litLength = (size_t)(start - anchor);
-        ZSTD_storeSeq(seqStore, litLength, anchor, iend, (U32)offcode, matchLength);
- 
-        anchor = ip = start + matchLength;
-        while (((ip <= ilimit) & (offset_2 > 0)) && (MEM_read32(ip) == MEM_read32(ip - offset_2))) {
-            /* store sequence */
-            matchLength = ZSTD_count(ip + 4, ip + 4 - offset_2, iend) + 4;
-            offcode = offset_2;
-            offset_2 = offset_1;
-            offset_1 = (U32)offcode; /* swap repcodes */
-            ZSTD_storeSeq(seqStore, 0, anchor, iend, REPCODE1_TO_OFFBASE, matchLength);
-            ip += matchLength;
-            anchor = ip;
-            continue; /* faster when present ... (?) */
-        }
-    }
- 
-    /* If offset_1 started invalid (offsetSaved1 != 0) and became valid (offset_1 != 0),
-     * rotate saved offsets. See comment in ZSTD_compressBlock_fast_noDict for more context. */
-    offsetSaved2 = ((offsetSaved1 != 0) && (offset_1 != 0)) ? offsetSaved1 : offsetSaved2;
- 
-    /* save reps for next block */
-    rep[0] = offset_1 ? offset_1 : offsetSaved1;
-    rep[1] = offset_2 ? offset_2 : offsetSaved2;
-    /* Return the last literals size */
-    return (size_t)(iend - anchor);
-}
+
 
 FORCE_INLINE_TEMPLATE
 ZSTD_ALLOW_POINTER_OVERFLOW_ATTR
