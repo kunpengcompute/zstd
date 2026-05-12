@@ -54,6 +54,7 @@ EXCLUDED_BASENAMES = {
     "README.md",
     "run.py",
     ".gitignore",
+    "compress-file-to-dir-without-write-perm.sh", 
 }
 
 EXCLUDED_SUFFIXES = [

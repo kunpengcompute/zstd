@@ -289,13 +289,15 @@ _start: /* Requires: ip0 */
             goto _match;
         }
 
-         if (matchFound(ip0, base + matchIdx, matchIdx, prefixStartIndex)) {
-            /* Write next hash table entry (it's already calculated).
-            * This write is known to be safe because the ip1 == ip0 + 1,
-            * so searching will resume after ip1 */
-            hashTable[hash1] = (U32)(ip1 - base);
+        if (ip0 > base + matchIdx) {
+            if (matchFound(ip0, base + matchIdx, matchIdx, prefixStartIndex)) {
+                /* Write next hash table entry (it's already calculated).
+                * This write is known to be safe because the ip1 == ip0 + 1,
+                * so searching will resume after ip1 */
+                hashTable[hash1] = (U32)(ip1 - base);
 
-            goto _offset;
+                goto _offset;
+            }
         }
 
         /* lookup ip[1] */
@@ -314,16 +316,19 @@ _start: /* Requires: ip0 */
         current0 = (U32)(ip0 - base);
         hashTable[hash0] = current0;
 
-         if (matchFound(ip0, base + matchIdx, matchIdx, prefixStartIndex)) {
-            /* Write next hash table entry, since it's already calculated */
-            if (step <= 4) {
-                /* Avoid writing an index if it's >= position where search will resume.
-                * The minimum possible match has length 4, so search can resume at ip0 + 4.
-                */
-                hashTable[hash1] = (U32)(ip1 - base);
+        if (ip0 > base + matchIdx) {
+            if (matchFound(ip0, base + matchIdx, matchIdx, prefixStartIndex)) {
+                /* Write next hash table entry, since it's already calculated */
+                if (step <= 4) {
+                    /* Avoid writing an index if it's >= position where search will resume.
+                    * The minimum possible match has length 4, so search can resume at ip0 + 4.
+                    */
+                    hashTable[hash1] = (U32)(ip1 - base);
+                }
+                goto _offset;
             }
-            goto _offset;
         }
+         
 
         /* lookup ip[1] */
         matchIdx = hashTable[hash1];
@@ -597,21 +602,24 @@ size_t ZSTD_compressBlock_fast_dictMatchState_generic(
                 }
             }
 
-            if (ZSTD_match4Found_cmov(ip0, match, matchIndex, prefixStartIndex)) {
-                /* found a regular match of size >= 4 */
-                U32 const offset = (U32) (ip0 - match);
-                mLength = ZSTD_count(ip0 + 4, match + 4, iend) + 4;
-                while (((ip0 > anchor) & (match > prefixStart))
-                       && (ip0[-1] == match[-1])) {
-                    ip0--;
-                    match--;
-                    mLength++;
-                } /* catch up */
-                offset_2 = offset_1;
-                offset_1 = offset;
-                ZSTD_storeSeq(seqStore, (size_t) (ip0 - anchor), anchor, iend, OFFSET_TO_OFFBASE(offset), mLength);
-                break;
+            if (ip0 > match) {
+                if (ZSTD_match4Found_cmov(ip0, match, matchIndex, prefixStartIndex)) {
+                    /* found a regular match of size >= 4 */
+                    U32 const offset = (U32) (ip0 - match);
+                    mLength = ZSTD_count(ip0 + 4, match + 4, iend) + 4;
+                    while (((ip0 > anchor) & (match > prefixStart))
+                        && (ip0[-1] == match[-1])) {
+                        ip0--;
+                        match--;
+                        mLength++;
+                    } /* catch up */
+                    offset_2 = offset_1;
+                    offset_1 = offset;
+                    ZSTD_storeSeq(seqStore, (size_t) (ip0 - anchor), anchor, iend, OFFSET_TO_OFFBASE(offset), mLength);
+                    break;
+                }
             }
+            
 
             /* Prepare for next iteration */
             dictMatchIndexAndTag = dictHashTable[dictHashAndTag1 >> ZSTD_SHORT_CACHE_TAG_BITS];
@@ -819,7 +827,7 @@ _start: /* Requires: ip0 */
                 goto _match;
         }   }
 
-        {   /* load match for ip[0] */
+        if (ip0 > idxBase + idx) {   /* load match for ip[0] */
             U32 const mval = idx >= dictStartIndex ?
                     MEM_read32(idxBase + idx) :
                     MEM_read32(ip0) ^ 1; /* guaranteed not to match */
@@ -847,7 +855,7 @@ _start: /* Requires: ip0 */
         current0 = (U32)(ip0 - base);
         hashTable[hash0] = current0;
 
-        {   /* load match for ip[0] */
+        if (ip0 > idxBase + idx) {   /* load match for ip[0] */
             U32 const mval = idx >= dictStartIndex ?
                     MEM_read32(idxBase + idx) :
                     MEM_read32(ip0) ^ 1; /* guaranteed not to match */

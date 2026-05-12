@@ -115,7 +115,7 @@ DEBUGFLAGS= -Wall -Wextra -Wcast-qual -Wcast-align -Wshadow \
             -Wstrict-prototypes -Wundef -Wpointer-arith \
             -Wvla -Wformat=2 -Winit-self -Wfloat-equal -Wwrite-strings \
             -Wredundant-decls -Wmissing-prototypes -Wc++-compat
-CFLAGS   += $(DEBUGFLAGS) $(MOREFLAGS) -g
+CFLAGS   += $(DEBUGFLAGS) $(MOREFLAGS)
 ASFLAGS  += $(DEBUGFLAGS) $(MOREFLAGS) $(CFLAGS)
 LDFLAGS  += $(MOREFLAGS)
 FLAGS     = $(CPPFLAGS) $(CFLAGS) $(ASFLAGS) $(LDFLAGS)
@@ -135,8 +135,6 @@ CFLAGS  += -Qunused-arguments -Wa,--noexecstack
 endif
 endif
 
-CFLAGS  += -g
-
 ifeq ($(shell echo "int main(int argc, char* argv[]) { (void)argc; (void)argv; return 0; }" | $(CC) $(FLAGS) -z cet-report=error -x c -Werror - -o $(VOID) 2>$(VOID) && echo 1 || echo 0),1)
 LDFLAGS += -z cet-report=error
 endif
@@ -149,16 +147,13 @@ endif
 GREP = grep $(GREP_OPTIONS)
 
 ZSTD_COMMON_FILES := $(sort $(wildcard $(LIB_SRCDIR)/common/*.c))
-ZSTD_COMPRESS_FILES := $(sort $(wildcard $(LIB_SRCDIR)/compress/*.c))
+ZSTD_COMPRESS_FILES := $(sort $(wildcard $(LIB_SRCDIR)/compress/*.c) $(wildcard $(LIB_SRCDIR)/compress/*.S))
 ZSTD_DECOMPRESS_FILES := $(sort $(wildcard $(LIB_SRCDIR)/decompress/*.c))
 ZSTD_DICTBUILDER_FILES := $(sort $(wildcard $(LIB_SRCDIR)/dictBuilder/*.c))
 ZSTD_DEPRECATED_FILES := $(sort $(wildcard $(LIB_SRCDIR)/deprecated/*.c))
 ZSTD_LEGACY_FILES :=
 
 ZSTD_DECOMPRESS_AMD64_ASM_FILES := $(sort $(wildcard $(LIB_SRCDIR)/decompress/*_amd64.S))
-
-ZSTD_COMPRESS_AMD64_ASM_FILES = $(sort $(wildcard $(LIB_SRCDIR)/compress/zstd_lazy_aarch64.S))
-ZSTD_COMPRESS_FILES += $(ZSTD_COMPRESS_AMD64_ASM_FILES)
 
 ifneq ($(ZSTD_NO_ASM), 0)
   CPPFLAGS += -DZSTD_DISABLE_ASM

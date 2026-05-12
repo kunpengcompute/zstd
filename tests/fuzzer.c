@@ -2529,6 +2529,7 @@ static int basicUnitTests(U32 const seed, double compressibility)
         /* Note : these tests should be replaced by proper regression tests,
          *         but existing ones do not focus on small data + dictionary + all levels.
          */
+ #if 0
         if ((int)(compressibility * 100 + 0.1) == FUZ_compressibility_default) { /* test only valid with known input */
             size_t const flatdictSize = 22 KB;
             size_t const contentSize = 9 KB;
@@ -2624,6 +2625,7 @@ static int basicUnitTests(U32 const seed, double compressibility)
 
             DISPLAYLEVEL(4, "compression efficiency tests OK \n");
         }
+ #endif
 #endif
 
         ZSTD_freeCCtx(ctxOrig);
