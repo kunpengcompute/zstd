@@ -45,6 +45,7 @@
 ***************************************/
 typedef enum { ZSTDcs_created=0, ZSTDcs_init, ZSTDcs_ongoing, ZSTDcs_ending } ZSTD_compressionStage_e;
 typedef enum { zcss_init=0, zcss_load, zcss_flush } ZSTD_cStreamStage;
+typedef enum { ZSTDcs_Block=0, ZSTDcs_Frame, ZSTDcs_Stream } ZSTD_compressionMode;
 
 typedef struct ZSTD_prefixDict_s {
     const void* dict;
@@ -290,8 +291,9 @@ struct ZSTD_MatchState_t {
     U32* hashTable;
     U32* hashTable3;
     U32* chainTable;
-    void* GREEDY_matchfinder;
-    U32 searchStep;
+    void* WRC_matchfinder;
+    ZSTD_compressionMode compMode;
+    size_t compressionSize;
 
     int forceNonContiguous; /* Non-zero if we should force non-contiguous load for the next window update. */
 
@@ -640,17 +642,6 @@ ZSTD_selectAddr(U32 index, U32 lowLimit, const BYTE* candidate, const BYTE* back
         : "r"(index), "r"(lowLimit), "r"(backup)
         );
     return candidate;
-#elif defined(__GNUC__) && defined(__aarch64__)
-    __asm__ (
-            "cmp     %w1, %w2\n"                
-            "csel    %0, %0, %3, hs\n"       
-            : "+r"(candidate)                      
-            : "r"(index),                       
-            "r"(lowLimit),                  
-            "r"(backup)                       
-            : "cc"                             
-            );
-    return candidate;
 #else
     return index >= lowLimit ? candidate : backup;
 #endif
@@ -720,7 +711,7 @@ ZSTD_safecopyLiterals(BYTE* op, BYTE const* ip, BYTE const* const iend, BYTE con
 {
     assert(iend > ilimit_w);
     if (ip <= ilimit_w) {
-        ZSTD_wildcopy(op, ip, ilimit_w - ip, ZSTD_no_overlap);
+        ZSTD_wildcopy(op, ip, (size_t)(ilimit_w - ip), ZSTD_no_overlap);
         op += ilimit_w - ip;
         ip = ilimit_w;
     }
@@ -737,11 +728,6 @@ ZSTD_safecopyLiterals(BYTE* op, BYTE const* ip, BYTE const* const iend, BYTE con
 #define OFFBASE_IS_REPCODE(o) ( 1 <= (o) && (o) <= ZSTD_REP_NUM)
 #define OFFBASE_TO_OFFSET(o)  (assert(OFFBASE_IS_OFFSET(o)), (o) - ZSTD_REP_NUM)
 #define OFFBASE_TO_REPCODE(o) (assert(OFFBASE_IS_REPCODE(o)), (o))  /* returns ID 1,2,3 */
-
-#define STORED_IS_OFFSET OFFBASE_IS_OFFSET
-#define STORE_OFFSET OFFSET_TO_OFFBASE
-#define STORED_OFFSET OFFBASE_TO_OFFSET
-#define STORED_TO_OFFBASE(o) ((o)+1)
 
 /*! ZSTD_storeSeqOnly() :
  *  Store a sequence (litlen, litPtr, offBase and matchLength) into SeqStore_t.
@@ -818,7 +804,7 @@ ZSTD_storeSeq(SeqStore_t* seqStorePtr,
         ZSTD_STATIC_ASSERT(WILDCOPY_OVERLENGTH >= 16);
         ZSTD_copy16(seqStorePtr->lit, literals);
         if (litLength > 16) {
-            ZSTD_wildcopy(seqStorePtr->lit+16, literals+16, (ptrdiff_t)litLength-16, ZSTD_no_overlap);
+            ZSTD_wildcopy(seqStorePtr->lit+16, literals+16, litLength-16, ZSTD_no_overlap);
         }
     } else {
         ZSTD_safecopyLiterals(seqStorePtr->lit, literals, litEnd, litLimit_w);
@@ -924,7 +910,7 @@ MEM_STATIC size_t ZSTD_hash3PtrS(const void* ptr, U32 h, U32 s) { return ZSTD_ha
 
 static const U32 prime4bytes = 2654435761U;
 
-static size_t ZSTD_hash4_opt(U32 u, U32 h) { assert(h <= 32); return (size_t)((((U64)((u * prime3bytes) >> (32-h)) << 32)) + (U32)(u * prime3bytes)) ; }
+static size_t ZSTD_hash4_opt(U32 u, U32 h) { assert(h <= 32); return (size_t)((((U64)((u * prime4bytes) >> (32-h)) << 32)) + (U32)(u * prime4bytes)) ; }
 static size_t ZSTD_hash4Ptr_opt(const void* ptr, U32 h) { return ZSTD_hash4_opt(MEM_readLE32(ptr), h); }
 
 static U32    ZSTD_hash4(U32 u, U32 h, U32 s) { assert(h <= 32); return ((u * prime4bytes) ^ s) >> (32-h) ; }
@@ -1584,7 +1570,7 @@ typedef struct {
 /* for benchmark */
 size_t ZSTD_convertBlockSequences(ZSTD_CCtx* cctx,
                         const ZSTD_Sequence* const inSeqs, size_t nbSequences,
-                        int const repcodeResolution);
+                        int repcodeResolution);
 
 typedef struct {
     size_t nbSequences;

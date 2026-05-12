@@ -11,7 +11,6 @@
 # default target (when running `make` with no argument)
 lib-release:
 
-
 # Modules
 ZSTD_LIB_COMPRESSION ?= 1
 ZSTD_LIB_DECOMPRESSION ?= 1

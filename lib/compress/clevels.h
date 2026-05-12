@@ -30,7 +30,7 @@ static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEV
     { 20, 15, 16,  1,  6,  0, ZSTD_fast    },  /* level  2 */
     { 21, 16, 17,  1,  5,  0, ZSTD_dfast   },  /* level  3 */
     { 21, 18, 18,  1,  5,  0, ZSTD_dfast   },  /* level  4 */
-    { 21, 18, 19,  3,  5,  2, ZSTD_greedy  },  /* level  5 */
+    { 22, 18, 19,  3,  5,  2, ZSTD_greedy  },  /* level  5 */
     { 21, 18, 19,  3,  5,  4, ZSTD_lazy    },  /* level  6 */
     { 21, 19, 20,  4,  5,  8, ZSTD_lazy    },  /* level  7 */
     { 21, 19, 20,  4,  5, 16, ZSTD_lazy2   },  /* level  8 */
@@ -56,7 +56,7 @@ static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEV
     { 18, 14, 14,  1,  5,  0, ZSTD_dfast   },  /* level  2 */
     { 18, 16, 16,  1,  4,  0, ZSTD_dfast   },  /* level  3 */
     { 18, 16, 17,  3,  5,  2, ZSTD_greedy  },  /* level  4.*/
-    { 18, 17, 18,  5,  5,  2, ZSTD_greedy  },  /* level  5.*/
+    { 22, 17, 18,  5,  5,  2, ZSTD_greedy  },  /* level  5.*/
     { 18, 18, 19,  3,  5,  4, ZSTD_lazy    },  /* level  6.*/
     { 18, 18, 19,  4,  4,  4, ZSTD_lazy    },  /* level  7 */
     { 18, 18, 19,  4,  4,  8, ZSTD_lazy2   },  /* level  8 */
@@ -82,17 +82,7 @@ static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEV
     { 17, 13, 15,  1,  5,  0, ZSTD_fast    },  /* level  2 */
     { 17, 15, 16,  2,  5,  0, ZSTD_dfast   },  /* level  3 */
     { 17, 17, 17,  2,  4,  0, ZSTD_dfast   },  /* level  4 */
-    { 17, 16, 17,  3,  4,  2, ZSTD_greedy  },  /* level  5 */
-
-    // { 17, 15, 15,  2,  5,  0, ZSTD_dfast   },  /* level  3 */
-    // { 17, 15, 15,  2,  4,  0, ZSTD_dfast   },  /* level  4 */
-    // { 17, 16, 17,  3,  4,  2, ZSTD_greedy  },  /* level  5 */
-    
-
-    // { 17, 15, 16,  2,  5,  0, ZSTD_dfast   },  /* level  3 */
-    // { 15, 17, 17,  2,  4,  0, ZSTD_dfast   },  /* level  4 */
-    // { 15, 16, 17,  3,  4,  2, ZSTD_greedy  },  /* level  5 */
-
+    { 22, 16, 17,  3,  4,  2, ZSTD_greedy  },  /* level  5 */
     { 17, 16, 17,  3,  4,  4, ZSTD_lazy    },  /* level  6 */
     { 17, 16, 17,  3,  4,  8, ZSTD_lazy2   },  /* level  7 */
     { 17, 16, 17,  4,  4,  8, ZSTD_lazy2   },  /* level  8 */
@@ -119,11 +109,6 @@ static const ZSTD_compressionParameters ZSTD_defaultCParameters[4][ZSTD_MAX_CLEV
     { 14, 14, 15,  2,  4,  0, ZSTD_dfast   },  /* level  3 */
     { 14, 14, 14,  4,  4,  2, ZSTD_greedy  },  /* level  4 */
     { 14, 14, 14,  3,  4,  4, ZSTD_lazy    },  /* level  5.*/
-
-    // { 12, 14, 15,  2,  4,  0, ZSTD_dfast   },  /* level  3 */
-    // { 12, 14, 14,  4,  4,  2, ZSTD_greedy  },  /* level  4 */
-    // { 12, 14, 14,  3,  4,  4, ZSTD_lazy    },  /* level  5.*/
-
     { 14, 14, 14,  4,  4,  8, ZSTD_lazy2   },  /* level  6 */
     { 14, 14, 14,  6,  4,  8, ZSTD_lazy2   },  /* level  7 */
     { 14, 14, 14,  8,  4,  8, ZSTD_lazy2   },  /* level  8.*/
